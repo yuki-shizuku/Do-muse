@@ -947,3 +947,51 @@ Before submitting JSON, verify:
 | Tempo gradual missing target | `"tempo_gradual": {}` | `"tempo_gradual": {"target_bpm": 140}` |
 | Subito invalid | `"subito": "loud"` | `"subito": "f"` |
 | Expression too long | `"expression": "..." (>200 chars)` | Shorten to 200 characters or fewer |
+
+---
+
+## 36. Multi-Format Support
+
+Do Muse now supports multiple input and output formats beyond JSON.
+
+### 36.1 Input Formats (Import)
+
+| Format | Extension | Description | Supported via |
+|--------|-----------|-------------|---------------|
+| JSON | `.json` | Native Do Muse score format | Direct read |
+| MusicXML | `.xml`, `.mxl` | Industry standard music notation format | music21 converter |
+| MIDI | `.mid`, `.midi` | Universal digital music interface format | music21 converter |
+
+### 36.2 Output Formats (Export)
+
+| Format | Extension | Description | Export Key |
+|--------|-----------|-------------|------------|
+| MXL | `.mxl` | Compressed MusicXML (default) | `mxl` |
+| MIDI | `.mid` | Standard MIDI File | `midi` |
+| MusicXML | `.xml` | Uncompressed MusicXML | `xml` |
+| LilyPond | `.ly` | LilyPond music notation file | `ly` |
+
+### 36.3 How Import Works
+
+1. MusicXML or MIDI file is parsed by music21's `converter.parse()`
+2. Parts, notes, dynamics, articulations, ties, lyrics, ornaments, etc. are extracted
+3. The data is converted to the standard Do Muse JSON format (see Sections 1-35)
+4. The JSON is loaded into the editor for review and validation
+5. Limited metadata (title, composer, tempo, time signature, key signature) is extracted from the first part
+
+### 36.4 How Export Works
+
+1. JSON content is validated using the same validation rules (Section 34)
+2. A music21 Score object is built via `_build_score()` (shared by all exporters)
+3. The Score is written to the target format:
+   - **MXL**: MusicXML → DOCTYPE removed → compressed into `.mxl` ZIP
+   - **MIDI**: Direct music21 `score.write('midi', fp=...)`
+   - **MusicXML**: MusicXML → DOCTYPE removed → saved as `.xml`
+   - **LilyPond**: Direct music21 `score.write('lilypond', fp=...)`
+
+### 36.5 Import Limitations
+
+- **MIDI files may lack dynamics, articulation, and notation details** since MIDI only stores note-on/note-off events and velocity
+- **MusicXML**: Grace notes, complex ornaments, and hairpins may not be fully preserved
+- **Metadata** (title, composer) is only available if the source file includes it
+- Instruments are mapped via General MIDI program numbers; unrecognized instruments default to "Acoustic Grand Piano"

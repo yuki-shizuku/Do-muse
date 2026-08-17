@@ -64,17 +64,48 @@ class MainWindow(QMainWindow):
         # ── File menu ──
         file_menu = menu_bar.addMenu(LanguageManager.tr("menu_file"))
 
+        # Import submenu
+        import_menu = file_menu.addMenu(LanguageManager.tr("menu_import"))
+
+        self.action_import_musicxml = QAction(LanguageManager.tr("menu_import_musicxml"), self)
+        self.action_import_musicxml.triggered.connect(lambda: self.on_import_file("musicxml"))
+        import_menu.addAction(self.action_import_musicxml)
+
+        self.action_import_midi = QAction(LanguageManager.tr("menu_import_midi"), self)
+        self.action_import_midi.triggered.connect(lambda: self.on_import_file("midi"))
+        import_menu.addAction(self.action_import_midi)
+
+        import_menu.addSeparator()
+
         self.action_load_json = QAction(LanguageManager.tr("menu_load_json"), self)
         self.action_load_json.triggered.connect(self.on_load_json)
-        file_menu.addAction(self.action_load_json)
+        import_menu.addAction(self.action_load_json)
 
+        # Save JSON
         self.action_save_json = QAction(LanguageManager.tr("menu_save_json"), self)
         self.action_save_json.triggered.connect(self.on_save_json)
         file_menu.addAction(self.action_save_json)
 
+        file_menu.addSeparator()
+
+        # Export submenu
+        export_menu = file_menu.addMenu(LanguageManager.tr("menu_export"))
+
         self.action_export_mxl = QAction(LanguageManager.tr("menu_export_mxl"), self)
-        self.action_export_mxl.triggered.connect(self.on_export_mxl)
-        file_menu.addAction(self.action_export_mxl)
+        self.action_export_mxl.triggered.connect(lambda: self.on_export_format("mxl"))
+        export_menu.addAction(self.action_export_mxl)
+
+        self.action_export_midi = QAction(LanguageManager.tr("menu_export_midi"), self)
+        self.action_export_midi.triggered.connect(lambda: self.on_export_format("midi"))
+        export_menu.addAction(self.action_export_midi)
+
+        self.action_export_xml = QAction(LanguageManager.tr("menu_export_xml"), self)
+        self.action_export_xml.triggered.connect(lambda: self.on_export_format("xml"))
+        export_menu.addAction(self.action_export_xml)
+
+        self.action_export_ly = QAction(LanguageManager.tr("menu_export_ly"), self)
+        self.action_export_ly.triggered.connect(lambda: self.on_export_format("ly"))
+        export_menu.addAction(self.action_export_ly)
 
         file_menu.addSeparator()
 
@@ -139,8 +170,11 @@ class MainWindow(QMainWindow):
 
         bottom_layout.addStretch()
 
-        self.btn_export_mxl = QPushButton(LanguageManager.tr("btn_export_mxl"), self)
-        bottom_layout.addWidget(self.btn_export_mxl)
+        self.btn_import = QPushButton(LanguageManager.tr("btn_import"), self)
+        bottom_layout.addWidget(self.btn_import)
+
+        self.btn_export = QPushButton(LanguageManager.tr("btn_export"), self)
+        bottom_layout.addWidget(self.btn_export)
 
         main_layout.addLayout(bottom_layout)
 
@@ -151,7 +185,8 @@ class MainWindow(QMainWindow):
         self.btn_load_json.clicked.connect(self.on_load_json)
         self.btn_save_json.clicked.connect(self.on_save_json)
         self.btn_validate.clicked.connect(self.on_validate_json)
-        self.btn_export_mxl.clicked.connect(self.on_export_mxl)
+        self.btn_import.clicked.connect(self.on_import_dialog)
+        self.btn_export.clicked.connect(self.on_export_dialog)
 
     # ── Logging setup ─────────────────────────────────────────────────────
 
@@ -192,9 +227,24 @@ class MainWindow(QMainWindow):
         # Menu bar
         file_menu = self.menuBar().actions()[0]
         file_menu.setText(LanguageManager.tr("menu_file"))
-        self.action_load_json.setText(LanguageManager.tr("menu_load_json"))
+
+        # Import submenu
+        import_menu = file_menu.menu()
+        import_menu.actions()[0].setText(LanguageManager.tr("menu_import"))
+        # Import submenu items (inside the import menu)
+        import_actions = import_menu.actions()[0].menu().actions()
+        import_actions[0].setText(LanguageManager.tr("menu_import_musicxml"))
+        import_actions[1].setText(LanguageManager.tr("menu_import_midi"))
+        import_actions[3].setText(LanguageManager.tr("menu_load_json"))
+
         self.action_save_json.setText(LanguageManager.tr("menu_save_json"))
-        self.action_export_mxl.setText(LanguageManager.tr("menu_export_mxl"))
+
+        # Export submenu
+        export_actions = import_menu.actions()[4].menu().actions()
+        export_actions[0].setText(LanguageManager.tr("menu_export_mxl"))
+        export_actions[1].setText(LanguageManager.tr("menu_export_midi"))
+        export_actions[2].setText(LanguageManager.tr("menu_export_xml"))
+        export_actions[3].setText(LanguageManager.tr("menu_export_ly"))
 
         lang_menu = self.menuBar().actions()[1]
         lang_menu.setText(LanguageManager.tr("menu_language"))
@@ -205,7 +255,8 @@ class MainWindow(QMainWindow):
         self.btn_load_json.setText(LanguageManager.tr("btn_load_json"))
         self.btn_save_json.setText(LanguageManager.tr("btn_save_json"))
         self.btn_validate.setText(LanguageManager.tr("btn_validate"))
-        self.btn_export_mxl.setText(LanguageManager.tr("btn_export_mxl"))
+        self.btn_import.setText(LanguageManager.tr("btn_import"))
+        self.btn_export.setText(LanguageManager.tr("btn_export"))
 
         # Placeholders
         self.json_text_edit.setPlaceholderText(LanguageManager.tr("json_placeholder"))
@@ -288,55 +339,184 @@ class MainWindow(QMainWindow):
                                  LanguageManager.tr("msg_cannot_save", str(e)))
             logger.error(f"Failed to save JSON file: {e}")
 
-    def on_export_mxl(self):
-        """
-        Export the JSON content to an .mxl file.
+    # ── Import handlers ───────────────────────────────────────────────────
 
-        Parses and validates the JSON, then exports to MusicXML (.mxl) format.
+    def on_import_file(self, fmt: str):
+        """
+        Import a file (MusicXML or MIDI) and load the JSON into the editor.
+
+        Args:
+            fmt: Format type, "musicxml" or "midi".
+        """
+        if fmt == "musicxml":
+            title = LanguageManager.tr("fd_load_json")
+            flt = "MusicXML Files (*.xml *.mxl);;All Files (*)"
+        else:
+            title = LanguageManager.tr("fd_load_json")
+            flt = "MIDI Files (*.mid *.midi);;All Files (*)"
+
+        file_path, _ = QFileDialog.getOpenFileName(self, title, "", flt)
+        if not file_path:
+            return
+
+        try:
+            from core.format_importer import import_file
+            json_data = import_file(file_path)
+            json_text = json.dumps(json_data, indent=2, ensure_ascii=False)
+            self.json_text_edit.setPlainText(json_text)
+            QMessageBox.information(
+                self, LanguageManager.tr("msg_import_success"),
+                LanguageManager.tr("msg_import_success_content", file_path)
+            )
+            logger.info(f"Import successful: {file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
+                                 LanguageManager.tr("msg_import_error", str(e)))
+            logger.error(f"Import failed: {e}")
+
+    def on_import_dialog(self):
+        """
+        Open a unified import dialog supporting multiple file formats.
+
+        User can pick .xml, .mxl, .mid, .midi, or .json files.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, LanguageManager.tr("msg_import_hint"), "",
+            LanguageManager.tr("fd_import_all_filter")
+        )
+        if not file_path:
+            return
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".json":
+            # Load JSON directly
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                self.json_text_edit.setPlainText(content)
+                logger.info(f"Loaded JSON file: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
+                                     LanguageManager.tr("msg_import_error", str(e)))
+                logger.error(f"Failed to load JSON file: {e}")
+        else:
+            # Import via format_importer
+            try:
+                from core.format_importer import import_file
+                json_data = import_file(file_path)
+                json_text = json.dumps(json_data, indent=2, ensure_ascii=False)
+                self.json_text_edit.setPlainText(json_text)
+                QMessageBox.information(
+                    self, LanguageManager.tr("msg_import_success"),
+                    LanguageManager.tr("msg_import_success_content", file_path)
+                )
+                logger.info(f"Import successful: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
+                                     LanguageManager.tr("msg_import_error", str(e)))
+                logger.error(f"Import failed: {e}")
+
+    # ── Export handlers ───────────────────────────────────────────────────
+
+    def _parse_and_validate_json(self) -> dict:
+        """
+        Parse and validate JSON content from the editor.
+        Returns the parsed dict, or None on failure.
         """
         text = self.json_text_edit.toPlainText().strip()
         if not text:
             QMessageBox.warning(self, LanguageManager.tr("msg_export_hint"),
                                 LanguageManager.tr("msg_empty_json_export"))
-            logger.warning("MXL export failed: JSON content is empty")
-            return
+            logger.warning("Export failed: JSON content is empty")
+            return None
 
-        # Parse JSON
         try:
             json_data = json.loads(text)
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, LanguageManager.tr("msg_export_failed"),
                                  LanguageManager.tr("msg_json_format_error", str(e)))
-            logger.error(f"MXL export failed: JSON format error - {e}")
-            return
+            logger.error(f"Export failed: JSON format error - {e}")
+            return None
 
-        # Validate JSON
         from core import json_validator as jv
         is_valid, errors = jv.validate(json_data)
         if not is_valid:
             error_msg = LanguageManager.tr("msg_validation_failed", "\n".join(errors))
             QMessageBox.critical(self, LanguageManager.tr("msg_export_failed"), error_msg)
-            logger.error(f"MXL export failed: {error_msg}")
+            logger.error(f"Export failed: {error_msg}")
+            return None
+
+        return json_data
+
+    def on_export_format(self, fmt: str):
+        """
+        Export the JSON content to a specific format.
+
+        Args:
+            fmt: Format identifier, one of "mxl", "midi", "xml", "ly".
+        """
+        json_data = self._parse_and_validate_json()
+        if json_data is None:
             return
 
-        # Choose save path
+        # Determine file extension and filter
+        format_config = {
+            "mxl":  {"ext": ".mxl",  "filter_key": "fd_mxl_filter", "dialog_title_key": "fd_export_mxl"},
+            "midi": {"ext": ".mid",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
+            "xml":  {"ext": ".xml",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
+            "ly":   {"ext": ".ly",   "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
+        }
+        cfg = format_config.get(fmt, format_config["mxl"])
+
         default_dir = "./output/"
+        default_name = f"{json_data.get('title', 'Untitled')}{cfg['ext']}"
         file_path, _ = QFileDialog.getSaveFileName(
-            self, LanguageManager.tr("fd_export_mxl"), default_dir,
-            LanguageManager.tr("fd_mxl_filter")
+            self, LanguageManager.tr(cfg["dialog_title_key"]),
+            os.path.join(default_dir, default_name),
+            LanguageManager.tr(cfg["filter_key"])
         )
         if not file_path:
             return
 
         try:
-            from core.music_exporter import export_to_mxl
-            export_to_mxl(json_data, file_path)
+            from core.music_exporter import export_score
+            export_score(json_data, file_path, fmt)
             QMessageBox.information(
                 self, LanguageManager.tr("msg_export_success"),
                 LanguageManager.tr("msg_export_success_content", file_path)
             )
-            logger.info(f"MXL export successful: {file_path}")
+            logger.info(f"Export successful ({fmt}): {file_path}")
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("msg_export_failed"),
                                  LanguageManager.tr("msg_export_error", str(e)))
-            logger.error(f"MXL export failed: {e}")
+            logger.error(f"Export failed ({fmt}): {e}")
+
+    def on_export_dialog(self):
+        """
+        Open a format selection dialog then export in the chosen format.
+        """
+        json_data = self._parse_and_validate_json()
+        if json_data is None:
+            return
+
+        # Let user choose format
+        from PyQt5.QtWidgets import QInputDialog
+        formats = ["mxl", "midi", "xml", "ly"]
+        format_labels = [
+            LanguageManager.tr("msg_format_mxl"),
+            LanguageManager.tr("msg_format_midi"),
+            LanguageManager.tr("msg_format_xml"),
+            LanguageManager.tr("msg_format_ly"),
+        ]
+
+        fmt, ok = QInputDialog.getItem(
+            self, LanguageManager.tr("msg_select_export_format"),
+            LanguageManager.tr("msg_select_export_format"),
+            format_labels, 0, False
+        )
+        if not ok:
+            return
+
+        # Map label back to format key
+        fmt_key = formats[format_labels.index(fmt)]
+        self.on_export_format(fmt_key)

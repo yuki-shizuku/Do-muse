@@ -12,9 +12,16 @@ class LanguageManager:
         "window_title": {"zh": "Do Muse - 乐谱生成器", "en": "Do Muse - Score Generator"},
         # ── File menu ──
         "menu_file": {"zh": "文件", "en": "File"},
+        "menu_import": {"zh": "导入", "en": "Import"},
+        "menu_import_musicxml": {"zh": "MusicXML 文件...", "en": "MusicXML File..."},
+        "menu_import_midi": {"zh": "MIDI 文件...", "en": "MIDI File..."},
         "menu_load_json": {"zh": "加载 JSON", "en": "Load JSON"},
         "menu_save_json": {"zh": "保存 JSON", "en": "Save JSON"},
-        "menu_export_mxl": {"zh": "导出 MXL", "en": "Export MXL"},
+        "menu_export": {"zh": "导出为", "en": "Export As"},
+        "menu_export_mxl": {"zh": "MXL (压缩 MusicXML)", "en": "MXL (Compressed MusicXML)"},
+        "menu_export_midi": {"zh": "MIDI", "en": "MIDI"},
+        "menu_export_xml": {"zh": "MusicXML", "en": "MusicXML"},
+        "menu_export_ly": {"zh": "LilyPond", "en": "LilyPond"},
         "menu_exit": {"zh": "退出", "en": "Exit"},
         # ── Language menu ──
         "menu_language": {"zh": "语言", "en": "Language"},
@@ -24,7 +31,8 @@ class LanguageManager:
         "btn_load_json": {"zh": "加载 JSON", "en": "Load JSON"},
         "btn_save_json": {"zh": "保存 JSON", "en": "Save JSON"},
         "btn_validate": {"zh": "校验格式", "en": "Validate"},
-        "btn_export_mxl": {"zh": "导出 MXL", "en": "Export MXL"},
+        "btn_import": {"zh": "导入文件", "en": "Import"},
+        "btn_export": {"zh": "导出乐谱", "en": "Export"},
         # ── Placeholders ──
         "json_placeholder": {
             "zh": "在此输入或粘贴 JSON 格式的乐谱数据...",
@@ -75,6 +83,24 @@ class LanguageManager:
             "zh": "导出过程中发生错误：\n{}",
             "en": "Error during export:\n{}",
         },
+        # ── Import messages ──
+        "msg_import_hint": {"zh": "导入提示", "en": "Import"},
+        "msg_import_failed": {"zh": "导入失败", "en": "Import Failed"},
+        "msg_import_success": {"zh": "导入成功", "en": "Import Successful"},
+        "msg_import_success_content": {
+            "zh": "已成功导入文件：\n{}\n\n乐谱数据已加载到编辑器中。",
+            "en": "Successfully imported:\n{}\n\nScore data loaded into the editor.",
+        },
+        "msg_import_error": {
+            "zh": "导入过程中发生错误：\n{}",
+            "en": "Error during import:\n{}",
+        },
+        # ── Format selection ──
+        "msg_select_export_format": {"zh": "选择导出格式", "en": "Select Export Format"},
+        "msg_format_mxl": {"zh": "MXL (压缩 MusicXML)", "en": "MXL (Compressed MusicXML)"},
+        "msg_format_midi": {"zh": "MIDI", "en": "MIDI"},
+        "msg_format_xml": {"zh": "MusicXML", "en": "MusicXML"},
+        "msg_format_ly": {"zh": "LilyPond", "en": "LilyPond"},
         # ── File dialog ──
         "fd_load_json": {"zh": "加载 JSON 文件", "en": "Load JSON File"},
         "fd_save_json": {"zh": "保存 JSON 文件", "en": "Save JSON File"},
@@ -86,6 +112,14 @@ class LanguageManager:
         "fd_mxl_filter": {
             "zh": "MusicXML 文件 (*.mxl);;所有文件 (*)",
             "en": "MusicXML Files (*.mxl);;All Files (*)",
+        },
+        "fd_import_all_filter": {
+            "zh": "支持的文件 (*.xml *.mxl *.mid *.midi *.json);;MusicXML 文件 (*.xml *.mxl);;MIDI 文件 (*.mid *.midi);;JSON 文件 (*.json);;所有文件 (*)",
+            "en": "Supported Files (*.xml *.mxl *.mid *.midi *.json);;MusicXML Files (*.xml *.mxl);;MIDI Files (*.mid *.midi);;JSON Files (*.json);;All Files (*)",
+        },
+        "fd_export_filter": {
+            "zh": "MXL 文件 (*.mxl);;MIDI 文件 (*.mid);;MusicXML 文件 (*.xml);;LilyPond 文件 (*.ly);;所有文件 (*)",
+            "en": "MXL Files (*.mxl);;MIDI Files (*.mid);;MusicXML Files (*.xml);;LilyPond Files (*.ly);;All Files (*)",
         },
     }
 

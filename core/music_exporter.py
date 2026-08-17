@@ -1,15 +1,24 @@
 """
-music21 score export engine — builds a score from validated JSON and exports to .mxl
+music21 score export engine — builds a score from validated JSON and exports
+to multiple formats (.mxl, .mid, .xml, .ly).
 
-Provides export_to_mxl() as the main entry point, plus parse_duration(),
-get_duration_type() and other helper functions.
+Provides:
+  - export_to_mxl()   — compressed MusicXML
+  - export_to_midi()  — Standard MIDI File
+  - export_to_xml()   — uncompressed MusicXML
+  - export_to_ly()    — LilyPond
+  - export_score()    — dispatch by format string
+  - _build_score()    — shared score builder (used by all exporters)
+  - parse_duration()  — duration string → float
+  - get_duration_type() — duration string → music21 type string
 """
 
 import os
 import re
 import zipfile
 import tempfile
-from music21 import stream, note, chord, tempo, meter, key, instrument, expressions, articulations, dynamics as dynamics21
+from music21 import stream, note, chord, tempo, meter, key, instrument, \
+    expressions, articulations, dynamics as dynamics21
 from music21 import metadata as metadata21
 from music21 import spanner as spanner21
 from music21 import dynamics as dynamics_mod
@@ -272,11 +281,11 @@ def _apply_ornament(n_obj, ornament_str: str) -> None:
         n_obj.expressions.append(expr.InvertedTurn())
 
 
-def export_to_mxl(json_data: dict, output_path: str) -> bool:
+def _build_score(json_data: dict) -> stream.Score:
     """
-    Build a music21.stream.Score from validated JSON score data and export to .mxl.
+    Build a music21 Score object from validated JSON score data.
 
-    Build process:
+    Shared by all export format functions. Build process:
       1. Create a Score object with metadata (title, composer)
       2. For each track:
          a. Get MIDI program number via gm_mapping.get_program_number()
@@ -288,58 +297,38 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
             tremolo, glissando, navigation
          g. Support hairpin, tempo_gradual, subito, expression
          h. Add the Part to the Score
-      3. Export to MusicXML format and remove DOCTYPE declaration
-      4. Compress into .mxl format
 
     Args:
         json_data: Validated score JSON dict with title, composer, metadata, tracks.
-        output_path: Output .mxl file path.
 
     Returns:
-        bool: True on success.
-
-    Raises:
-        OSError: If the output directory cannot be created or music21 export fails.
+        stream.Score: The constructed music21 Score object.
     """
-    # 1. Auto-create output directory
-    output_dir = os.path.dirname(output_path)
-    if output_dir:
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-        except OSError as e:
-            raise OSError(f"Cannot create output directory: {output_dir}") from e
-
-    # 2. Import gm_mapping (lazy import to avoid circular dependency)
     from core import gm_mapping
 
-    # 3. Create Score object
     score = stream.Score()
 
-    # 4. Set metadata (title / composer)
+    # Set metadata (title / composer)
     md = metadata21.Metadata()
     md.title = json_data.get("title", "Untitled")
     md.composer = json_data.get("composer", "Do Muse")
     score.insert(0, md)
 
-    # 5. Read metadata sub-dict
     meta = json_data.get("metadata", {})
 
-    # 6. Iterate over each track
     for track in json_data.get("tracks", []):
-        # 6a. Get instrument name and MIDI program number
         instrument_name = track.get("instrument", "Acoustic Grand Piano")
         program_number = gm_mapping.get_program_number(instrument_name)
 
-        # 6b. Create Part
         part = stream.Part()
 
-        # 6c. Set instrument (using MIDI program number)
+        # Set instrument
         inst = instrument.Instrument()
         inst.midiProgram = program_number
         inst.instrumentName = instrument_name
         part.insert(0, inst)
 
-        # 6d. Insert time signature, key signature, tempo at the start
+        # Insert time signature, key signature, tempo at the start
         time_sig = meta.get("time_signature", "4/4")
         part.insert(0, meter.TimeSignature(time_sig))
 
@@ -350,12 +339,12 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
         bpm = meta.get("tempo_bpm", 120)
         part.insert(0, tempo.MetronomeMark(number=bpm))
 
-        # 6e. Set clef
+        # Set clef
         clef_sign, clef_line = _get_clef_for_program(program_number)
         from music21 import clef
         part.insert(0, clef.TrebleClef() if clef_sign == 'G' else clef.BassClef())
 
-        # 6f. Iterate notes, building by offset accumulation
+        # Iterate notes, building by offset accumulation
         offset = 0.0
         part._current_tempo = bpm
         for n in track.get("notes", []):
@@ -444,8 +433,6 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
                     te_ped.offset = offset
                     part.insert(te_ped)
 
-            # ---------- JSON Schema-like field export ----------
-
             # Chord
             chord_pitches = n.get("chord")
             if chord_pitches is not None and isinstance(chord_pitches, list) and len(chord_pitches) > 0:
@@ -507,8 +494,6 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
                     expr = expressions.TextExpression(text)
                     expr.offset = offset
                     part.insert(expr)
-
-            # ---------- Expressive field export ----------
 
             # Hairpin
             hairpin = n.get("hairpin")
@@ -577,7 +562,7 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
             part.insert(n_obj)
             offset += dur_float_adjusted
 
-        # 6g. Track-level repeat markings
+        # Track-level repeat markings
         repeat_begin = track.get("repeat_begin")
         if repeat_begin is not None and repeat_begin:
             from music21 import bar
@@ -588,10 +573,48 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
             from music21 import bar
             part.insert(offset, bar.Repeat(direction="end"))
 
-        # 6h. Add Part to Score
         score.append(part)
 
-    # 7. Export to temporary XML, then post-process
+    return score
+
+
+def _ensure_output_dir(output_path: str) -> None:
+    """
+    Auto-create the output directory if it does not exist.
+
+    Args:
+        output_path: Full output file path.
+
+    Raises:
+        OSError: If the directory cannot be created.
+    """
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            raise OSError(f"Cannot create output directory: {output_dir}") from e
+
+
+def export_to_mxl(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to compressed .mxl.
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .mxl file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If music21 export fails.
+    """
+    _ensure_output_dir(output_path)
+
+    score = _build_score(json_data)
+
+    # Export to temporary XML, then post-process
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as tmp:
             temp_path = tmp.name
@@ -624,3 +647,124 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
         raise OSError(f"music21 export failed: {e}") from e
 
     return True
+
+
+def export_to_midi(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to Standard MIDI File (.mid).
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .mid file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If music21 export fails.
+    """
+    _ensure_output_dir(output_path)
+    score = _build_score(json_data)
+    try:
+        score.write('midi', fp=output_path)
+    except Exception as e:
+        raise OSError(f"MIDI export failed: {e}") from e
+    return True
+
+
+def export_to_xml(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to uncompressed MusicXML (.xml).
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .xml file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If music21 export fails.
+    """
+    _ensure_output_dir(output_path)
+    score = _build_score(json_data)
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as tmp:
+            temp_path = tmp.name
+
+        score.write('musicxml', fp=temp_path)
+
+        xml_content = ''
+        with open(temp_path, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+
+        xml_content = _remove_doctype(xml_content)
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(xml_content)
+
+        os.unlink(temp_path)
+    except Exception as e:
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise OSError(f"MusicXML export failed: {e}") from e
+    return True
+
+
+def export_to_ly(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to LilyPond (.ly).
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .ly file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If music21 export fails.
+    """
+    _ensure_output_dir(output_path)
+    score = _build_score(json_data)
+    try:
+        score.write('lilypond', fp=output_path)
+    except Exception as e:
+        raise OSError(f"LilyPond export failed: {e}") from e
+    return True
+
+
+def export_score(json_data: dict, output_path: str, fmt: str = "mxl") -> bool:
+    """
+    Dispatch to the appropriate export function based on format string.
+
+    Supported formats:
+      - "mxl"  → compressed MusicXML
+      - "midi" → Standard MIDI File
+      - "xml"  → uncompressed MusicXML
+      - "ly"   → LilyPond
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output file path.
+        fmt: Target format identifier. Defaults to "mxl".
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        ValueError: If the format string is not supported.
+    """
+    exporters = {
+        "mxl": export_to_mxl,
+        "midi": export_to_midi,
+        "xml": export_to_xml,
+        "ly": export_to_ly,
+    }
+    exporter = exporters.get(fmt.lower())
+    if exporter is None:
+        raise ValueError(
+            f"Unsupported export format: '{fmt}'. "
+            f"Supported formats: {', '.join(sorted(exporters.keys()))}"
+        )
+    return exporter(json_data, output_path)

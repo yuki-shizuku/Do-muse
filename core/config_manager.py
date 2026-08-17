@@ -37,6 +37,7 @@ class ConfigManager:
             "auto_open": "false",
             "output_format": "mxl",
             "language": "zh",
+            "import_recent_dir": "",
         }
 
     def load_config(self) -> Dict[str, str]:
@@ -78,6 +79,7 @@ class ConfigManager:
             "auto_open": config_dict.get("auto_open", "false"),
             "output_format": config_dict.get("output_format", "mxl"),
             "language": config_dict.get("language", "zh"),
+            "import_recent_dir": config_dict.get("import_recent_dir", ""),
         }
 
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
