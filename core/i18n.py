@@ -63,6 +63,10 @@ class LanguageManager:
             "zh": "乐谱数据校验失败：\n{}",
             "en": "Score data validation failed:\n{}",
         },
+        "msg_not_object": {
+            "zh": "JSON 数据必须是一个对象（而非数组或标量值）",
+            "en": "JSON data must be an object (not an array or scalar)",
+        },
         "msg_cannot_load": {
             "zh": "无法加载文件：{}",
             "en": "Cannot load file: {}",

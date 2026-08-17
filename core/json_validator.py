@@ -86,6 +86,11 @@ def validate(json_data: dict) -> tuple:
     """
     errors = []
 
+    # ---------- Type check ----------
+    if not isinstance(json_data, dict):
+        errors.append("JSON data must be an object (not an array or scalar)")
+        return (False, errors)
+
     # ---------- Fill defaults ----------
     if "title" not in json_data or json_data.get("title") is None:
         json_data["title"] = _DEFAULT_TITLE
