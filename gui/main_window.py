@@ -62,67 +62,67 @@ class MainWindow(QMainWindow):
         menu_bar = self.menuBar()
 
         # ── File menu ──
-        file_menu = menu_bar.addMenu(LanguageManager.tr("menu_file"))
+        self._file_menu = menu_bar.addMenu(LanguageManager.tr("menu_file"))
 
         # Import submenu
-        import_menu = file_menu.addMenu(LanguageManager.tr("menu_import"))
+        self._import_menu = self._file_menu.addMenu(LanguageManager.tr("menu_import"))
 
         self.action_import_musicxml = QAction(LanguageManager.tr("menu_import_musicxml"), self)
         self.action_import_musicxml.triggered.connect(lambda: self.on_import_file("musicxml"))
-        import_menu.addAction(self.action_import_musicxml)
+        self._import_menu.addAction(self.action_import_musicxml)
 
         self.action_import_midi = QAction(LanguageManager.tr("menu_import_midi"), self)
         self.action_import_midi.triggered.connect(lambda: self.on_import_file("midi"))
-        import_menu.addAction(self.action_import_midi)
+        self._import_menu.addAction(self.action_import_midi)
 
-        import_menu.addSeparator()
+        self._import_menu.addSeparator()
 
         self.action_load_json = QAction(LanguageManager.tr("menu_load_json"), self)
         self.action_load_json.triggered.connect(self.on_load_json)
-        import_menu.addAction(self.action_load_json)
+        self._import_menu.addAction(self.action_load_json)
 
         # Save JSON
         self.action_save_json = QAction(LanguageManager.tr("menu_save_json"), self)
         self.action_save_json.triggered.connect(self.on_save_json)
-        file_menu.addAction(self.action_save_json)
+        self._file_menu.addAction(self.action_save_json)
 
-        file_menu.addSeparator()
+        self._file_menu.addSeparator()
 
         # Export submenu
-        export_menu = file_menu.addMenu(LanguageManager.tr("menu_export"))
+        self._export_menu = self._file_menu.addMenu(LanguageManager.tr("menu_export"))
 
         self.action_export_mxl = QAction(LanguageManager.tr("menu_export_mxl"), self)
         self.action_export_mxl.triggered.connect(lambda: self.on_export_format("mxl"))
-        export_menu.addAction(self.action_export_mxl)
+        self._export_menu.addAction(self.action_export_mxl)
 
         self.action_export_midi = QAction(LanguageManager.tr("menu_export_midi"), self)
         self.action_export_midi.triggered.connect(lambda: self.on_export_format("midi"))
-        export_menu.addAction(self.action_export_midi)
+        self._export_menu.addAction(self.action_export_midi)
 
         self.action_export_xml = QAction(LanguageManager.tr("menu_export_xml"), self)
         self.action_export_xml.triggered.connect(lambda: self.on_export_format("xml"))
-        export_menu.addAction(self.action_export_xml)
+        self._export_menu.addAction(self.action_export_xml)
 
         self.action_export_ly = QAction(LanguageManager.tr("menu_export_ly"), self)
         self.action_export_ly.triggered.connect(lambda: self.on_export_format("ly"))
-        export_menu.addAction(self.action_export_ly)
+        self._export_menu.addAction(self.action_export_ly)
 
-        file_menu.addSeparator()
+        self._file_menu.addSeparator()
 
         action_exit = QAction(LanguageManager.tr("menu_exit"), self)
         action_exit.triggered.connect(self.close)
-        file_menu.addAction(action_exit)
+        self._file_menu.addAction(action_exit)
 
         # ── Language menu ──
-        lang_menu = menu_bar.addMenu(LanguageManager.tr("menu_language"))
+        self._lang_menu = menu_bar.addMenu(LanguageManager.tr("menu_language"))
 
         self.action_lang_zh = QAction(LanguageManager.tr("menu_lang_zh"), self)
         self.action_lang_zh.triggered.connect(lambda: self._switch_language("zh"))
-        lang_menu.addAction(self.action_lang_zh)
+        self._lang_menu.addAction(self.action_lang_zh)
 
         self.action_lang_en = QAction(LanguageManager.tr("menu_lang_en"), self)
         self.action_lang_en.triggered.connect(lambda: self._switch_language("en"))
-        lang_menu.addAction(self.action_lang_en)
+        self._lang_menu.addAction(self.action_lang_en)
 
     # ── Central widget ────────────────────────────────────────────────────
 
@@ -224,30 +224,26 @@ class MainWindow(QMainWindow):
         """Update all UI text elements to match the current language."""
         self.setWindowTitle(LanguageManager.tr("window_title"))
 
-        # Menu bar
-        file_menu = self.menuBar().actions()[0]
-        file_menu.setText(LanguageManager.tr("menu_file"))
+        # Menu bar — File menu
+        self._file_menu.setTitle(LanguageManager.tr("menu_file"))
 
         # Import submenu
-        import_menu = file_menu.menu()
-        import_menu.actions()[0].setText(LanguageManager.tr("menu_import"))
-        # Import submenu items (inside the import menu)
-        import_actions = import_menu.actions()[0].menu().actions()
-        import_actions[0].setText(LanguageManager.tr("menu_import_musicxml"))
-        import_actions[1].setText(LanguageManager.tr("menu_import_midi"))
-        import_actions[3].setText(LanguageManager.tr("menu_load_json"))
+        self._import_menu.setTitle(LanguageManager.tr("menu_import"))
+        self.action_import_musicxml.setText(LanguageManager.tr("menu_import_musicxml"))
+        self.action_import_midi.setText(LanguageManager.tr("menu_import_midi"))
+        self.action_load_json.setText(LanguageManager.tr("menu_load_json"))
 
         self.action_save_json.setText(LanguageManager.tr("menu_save_json"))
 
         # Export submenu
-        export_actions = import_menu.actions()[4].menu().actions()
-        export_actions[0].setText(LanguageManager.tr("menu_export_mxl"))
-        export_actions[1].setText(LanguageManager.tr("menu_export_midi"))
-        export_actions[2].setText(LanguageManager.tr("menu_export_xml"))
-        export_actions[3].setText(LanguageManager.tr("menu_export_ly"))
+        self._export_menu.setTitle(LanguageManager.tr("menu_export"))
+        self.action_export_mxl.setText(LanguageManager.tr("menu_export_mxl"))
+        self.action_export_midi.setText(LanguageManager.tr("menu_export_midi"))
+        self.action_export_xml.setText(LanguageManager.tr("menu_export_xml"))
+        self.action_export_ly.setText(LanguageManager.tr("menu_export_ly"))
 
-        lang_menu = self.menuBar().actions()[1]
-        lang_menu.setText(LanguageManager.tr("menu_language"))
+        # Language menu
+        self._lang_menu.setTitle(LanguageManager.tr("menu_language"))
         self.action_lang_zh.setText(LanguageManager.tr("menu_lang_zh"))
         self.action_lang_en.setText(LanguageManager.tr("menu_lang_en"))
 
