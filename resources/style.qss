@@ -8,8 +8,15 @@ QMenuBar {
     padding: 2px;
 }
 
+QMenuBar::item {
+    color: #1976d2;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
 QMenuBar::item:selected {
     background-color: #e3f2fd;
+    color: #1976d2;
 }
 
 QMenu {
@@ -17,8 +24,14 @@ QMenu {
     border: 1px solid #e0e0e0;
 }
 
+QMenu::item {
+    color: #1976d2;
+    padding: 6px 24px;
+}
+
 QMenu::item:selected {
     background-color: #e3f2fd;
+    color: #1976d2;
 }
 
 QPushButton {
@@ -108,4 +121,12 @@ QLineEdit {
     border-radius: 4px;
     padding: 6px;
     background-color: #ffffff;
+}
+
+QMessageBox {
+    background-color: #ffffff;
+}
+
+QMessageBox QLabel {
+    color: #212121;
 }
