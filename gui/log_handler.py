@@ -4,9 +4,9 @@ Redirects Python logging output to a QPlainTextEdit widget in the GUI
 """
 
 import logging
-from PyQt5.QtWidgets import QPlainTextEdit
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QTextCursor, QTextCharFormat
+from PyQt6.QtWidgets import QPlainTextEdit
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QTextCursor, QTextCharFormat
 
 
 class LogHandler(logging.Handler):
@@ -52,7 +52,7 @@ class LogHandler(logging.Handler):
             text_format.setForeground(color)
             self.text_edit.mergeCurrentCharFormat(text_format)
             self.text_edit.insertPlainText(msg + "\n")
-            self.text_edit.moveCursor(QTextCursor.End)
+            self.text_edit.moveCursor(QTextCursor.MoveOperation.End)
 
             scrollbar = self.text_edit.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())

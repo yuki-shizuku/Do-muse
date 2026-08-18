@@ -1,43 +1,239 @@
 """
 Do Muse — Main window module
 Defines the main window layout, menu bar, and interaction logic.
-Supports JSON editing, validation, and MXL export with i18n (zh/en).
+Supports JSON editing, validation, multi-format import/export, templates,
+recent files, score preview, and i18n (zh/en).
 """
 
 import json
 import logging
 import os
-from PyQt5.QtWidgets import (
+import tempfile
+import platform
+import subprocess
+from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QPushButton, QSplitter,
-    QMenuBar, QAction, QMessageBox, QFileDialog
+    QMenuBar, QMessageBox, QFileDialog,
+    QStatusBar, QProgressBar, QLabel
 )
-from PyQt5.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QAction
 
 from core import json_validator
 from core.i18n import LanguageManager
 from core.config_manager import ConfigManager
 from gui.log_handler import LogHandler
+from gui.json_highlighter import JsonHighlighter
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# JSON templates
+# ---------------------------------------------------------------------------
+
+_TEMPLATES: dict[str, dict] = {
+    "blank": {
+        "title": "Untitled",
+        "composer": "Unknown",
+        "metadata": {
+            "tempo_bpm": 120,
+            "time_signature": "4/4",
+            "key_signature": "C"
+        },
+        "tracks": [
+            {
+                "instrument": "Acoustic Grand Piano",
+                "notes": [
+                    {"pitch": 60, "duration": "quarter", "velocity": 80},
+                    {"pitch": -1, "duration": "quarter", "velocity": 0}
+                ]
+            }
+        ]
+    },
+    "piano": {
+        "title": "Piano Solo",
+        "composer": "Do Muse",
+        "metadata": {
+            "tempo_bpm": 120,
+            "time_signature": "4/4",
+            "key_signature": "C"
+        },
+        "tracks": [
+            {
+                "instrument": "Acoustic Grand Piano",
+                "notes": [
+                    {"pitch": 60, "duration": "quarter", "velocity": 80},
+                    {"pitch": 64, "duration": "quarter", "velocity": 80},
+                    {"pitch": 67, "duration": "quarter", "velocity": 80},
+                    {"pitch": 72, "duration": "half", "velocity": 85}
+                ]
+            }
+        ]
+    },
+    "duo": {
+        "title": "Duo",
+        "composer": "Do Muse",
+        "metadata": {
+            "tempo_bpm": 110,
+            "time_signature": "4/4",
+            "key_signature": "G"
+        },
+        "tracks": [
+            {
+                "instrument": "Violin",
+                "notes": [
+                    {"pitch": 67, "duration": "half", "velocity": 75},
+                    {"pitch": 69, "duration": "half", "velocity": 75}
+                ]
+            },
+            {
+                "instrument": "Cello",
+                "notes": [
+                    {"pitch": 48, "duration": "whole", "velocity": 70}
+                ]
+            }
+        ]
+    },
+    "scale": {
+        "title": "C Major Scale",
+        "composer": "Do Muse",
+        "metadata": {
+            "tempo_bpm": 100,
+            "time_signature": "4/4",
+            "key_signature": "C"
+        },
+        "tracks": [
+            {
+                "instrument": "Acoustic Grand Piano",
+                "notes": [
+                    {"pitch": 60, "duration": "quarter", "velocity": 80},
+                    {"pitch": 62, "duration": "quarter", "velocity": 80},
+                    {"pitch": 64, "duration": "quarter", "velocity": 80},
+                    {"pitch": 65, "duration": "quarter", "velocity": 80},
+                    {"pitch": 67, "duration": "quarter", "velocity": 85},
+                    {"pitch": 69, "duration": "quarter", "velocity": 85},
+                    {"pitch": 71, "duration": "quarter", "velocity": 85},
+                    {"pitch": 72, "duration": "half", "velocity": 90}
+                ]
+            }
+        ]
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Worker threads for async operations
+# ---------------------------------------------------------------------------
+
+class _ExportWorker(QThread):
+    """
+    Worker thread for exporting scores without blocking the UI.
+
+    Emits finished_signal with (success, error_message, output_path).
+    """
+
+    finished_signal = pyqtSignal(bool, str, str)
+
+    def __init__(self, json_data: dict, output_path: str, fmt: str):
+        """
+        Initialize the export worker.
+
+        Args:
+            json_data: Validated score JSON dict.
+            output_path: Output file path.
+            fmt: Format identifier ("mxl", "midi", "xml", "ly").
+        """
+        super().__init__()
+        self._json_data = json_data
+        self._output_path = output_path
+        self._fmt = fmt
+
+    def run(self):
+        """
+        Execute the export in a background thread.
+        """
+        try:
+            from core.music_exporter import export_score
+            export_score(self._json_data, self._output_path, self._fmt)
+            self.finished_signal.emit(True, "", self._output_path)
+        except Exception as e:
+            self.finished_signal.emit(False, str(e), self._output_path)
+
+
+class _PreviewWorker(QThread):
+    """
+    Worker thread for generating a score preview image.
+
+    Emits finished_signal with (success, image_path, error_message).
+    """
+
+    finished_signal = pyqtSignal(bool, str, str)
+
+    def __init__(self, json_data: dict):
+        """
+        Initialize the preview worker.
+
+        Args:
+            json_data: Validated score JSON dict.
+        """
+        super().__init__()
+        self._json_data = json_data
+
+    def run(self):
+        """
+        Generate a PNG preview of the score using music21's lilypond backend.
+        """
+        tmp_path = None
+        try:
+            from core.music_exporter import _build_score
+            score = _build_score(self._json_data)
+
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix='.png')
+            os.close(tmp_fd)
+
+            # Try to write as PNG using music21's lilypond or musicxml converter
+            try:
+                score.write('lilypond', fp=tmp_path)
+            except Exception:
+                # Fallback: try musicxml -> png via musescore if available
+                try:
+                    score.write('musicxml', fp=tmp_path.replace('.png', '.xml'))
+                    tmp_path = tmp_path.replace('.png', '.xml')
+                except Exception as e:
+                    raise RuntimeError(f"Cannot generate preview: {e}")
+
+            self.finished_signal.emit(True, tmp_path, "")
+        except Exception as e:
+            self.finished_signal.emit(False, "", str(e))
+
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
 
 class MainWindow(QMainWindow):
     """
     Do Muse main window, extends QMainWindow.
 
     Builds the full GUI layout and interaction, including:
-      - JSON editor with log console
-      - File menu (load/save JSON, export MXL)
+      - JSON editor with syntax highlighting and log console
+      - File menu (load/save JSON, import, export, templates, recent files)
+      - Edit menu (undo/redo)
+      - View menu (score preview)
       - Language menu (Chinese/English)
-      - Validation and export actions
+      - Validation and export actions with progress indication
+      - Status bar (language, file name, validation status)
+      - Drag & drop file support
+      - Keyboard shortcuts
 
     :param parent: Parent widget, defaults to None.
     """
 
     def __init__(self, parent=None):
         """
-        Initialize the main window: set up menus, layout, and logging.
+        Initialize the main window: set up menus, layout, logging, and state.
 
         Args:
             parent: Parent widget, defaults to None.
@@ -47,18 +243,26 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
 
         self.config_manager = ConfigManager()
+        self._current_file_path: str = ""
+        self._validation_status: str = "none"
+        self._export_worker: _ExportWorker = None
+        self._preview_worker: _PreviewWorker = None
 
         self._setup_menu_bar()
         self._setup_central_widget()
+        self._setup_status_bar()
         self._setup_logging()
         self._connect_signals()
+        self._setup_shortcuts()
+        self._enable_drag_drop()
+        self._update_status_bar()
 
         logger.info("Main window initialized")
 
     # ── Menu bar ──────────────────────────────────────────────────────────
 
     def _setup_menu_bar(self):
-        """Build the menu bar: File menu, Language menu, and their items."""
+        """Build the menu bar: File, Edit, View, Language menus and their items."""
         menu_bar = self.menuBar()
 
         # ── File menu ──
@@ -88,6 +292,31 @@ class MainWindow(QMainWindow):
 
         self._file_menu.addSeparator()
 
+        # Templates submenu
+        self._templates_menu = self._file_menu.addMenu(LanguageManager.tr("menu_templates"))
+
+        self.action_template_blank = QAction(LanguageManager.tr("menu_templates_blank"), self)
+        self.action_template_blank.triggered.connect(lambda: self.on_load_template("blank"))
+        self._templates_menu.addAction(self.action_template_blank)
+
+        self.action_template_piano = QAction(LanguageManager.tr("menu_templates_piano"), self)
+        self.action_template_piano.triggered.connect(lambda: self.on_load_template("piano"))
+        self._templates_menu.addAction(self.action_template_piano)
+
+        self.action_template_duo = QAction(LanguageManager.tr("menu_templates_duo"), self)
+        self.action_template_duo.triggered.connect(lambda: self.on_load_template("duo"))
+        self._templates_menu.addAction(self.action_template_duo)
+
+        self.action_template_scale = QAction(LanguageManager.tr("menu_templates_scale"), self)
+        self.action_template_scale.triggered.connect(lambda: self.on_load_template("scale"))
+        self._templates_menu.addAction(self.action_template_scale)
+
+        # Recent files submenu
+        self._recent_menu = self._file_menu.addMenu(LanguageManager.tr("menu_recent"))
+        self._refresh_recent_files_menu()
+
+        self._file_menu.addSeparator()
+
         # Export submenu
         self._export_menu = self._file_menu.addMenu(LanguageManager.tr("menu_export"))
 
@@ -113,6 +342,24 @@ class MainWindow(QMainWindow):
         action_exit.triggered.connect(self.close)
         self._file_menu.addAction(action_exit)
 
+        # ── Edit menu ──
+        self._edit_menu = menu_bar.addMenu(LanguageManager.tr("menu_edit"))
+
+        self.action_undo = QAction(LanguageManager.tr("menu_undo"), self)
+        self.action_undo.triggered.connect(self._on_undo)
+        self._edit_menu.addAction(self.action_undo)
+
+        self.action_redo = QAction(LanguageManager.tr("menu_redo"), self)
+        self.action_redo.triggered.connect(self._on_redo)
+        self._edit_menu.addAction(self.action_redo)
+
+        # ── View menu ──
+        self._view_menu = menu_bar.addMenu(LanguageManager.tr("menu_view"))
+
+        self.action_preview = QAction(LanguageManager.tr("menu_preview"), self)
+        self.action_preview.triggered.connect(self.on_preview_score)
+        self._view_menu.addAction(self.action_preview)
+
         # ── Language menu ──
         self._lang_menu = menu_bar.addMenu(LanguageManager.tr("menu_language"))
 
@@ -136,11 +383,13 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(6)
 
         # ── Splitter: JSON editor | Log console ──
-        splitter = QSplitter(Qt.Horizontal, self)
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
         # Left: JSON editor
         self.json_text_edit = QPlainTextEdit(self)
         self.json_text_edit.setPlaceholderText(LanguageManager.tr("json_placeholder"))
+        # Apply JSON syntax highlighting
+        self._json_highlighter = JsonHighlighter(self.json_text_edit.document())
         splitter.addWidget(self.json_text_edit)
 
         # Right: log console
@@ -178,6 +427,66 @@ class MainWindow(QMainWindow):
 
         main_layout.addLayout(bottom_layout)
 
+    # ── Status bar ────────────────────────────────────────────────────────
+
+    def _setup_status_bar(self):
+        """Set up the bottom status bar with language, file, and validation info."""
+        self._status_bar = QStatusBar(self)
+        self.setStatusBar(self._status_bar)
+
+        self._status_label_lang = QLabel("")
+        self._status_label_file = QLabel("")
+        self._status_label_validation = QLabel("")
+
+        self._status_bar.addWidget(self._status_label_lang)
+        self._status_bar.addWidget(self._status_label_file, 1)
+        self._status_bar.addPermanentWidget(self._status_label_validation)
+
+        # Progress bar (hidden by default)
+        self._progress_bar = QProgressBar(self)
+        self._progress_bar.setMaximumWidth(200)
+        self._progress_bar.setVisible(False)
+        self._status_bar.addPermanentWidget(self._progress_bar)
+
+    def _update_status_bar(self):
+        """Refresh the status bar labels."""
+        lang_display = "中文" if LanguageManager.get_language() == "zh" else "English"
+        self._status_label_lang.setText(
+            LanguageManager.tr("status_language", lang_display)
+        )
+
+        file_display = self._current_file_path if self._current_file_path \
+            else LanguageManager.tr("status_file_none")
+        self._status_label_file.setText(
+            LanguageManager.tr("status_file", os.path.basename(file_display) if self._current_file_path else file_display)
+        )
+
+        if self._validation_status == "ok":
+            val_text = LanguageManager.tr("status_validation_ok")
+        elif self._validation_status == "failed":
+            val_text = LanguageManager.tr("status_validation_failed")
+        else:
+            val_text = LanguageManager.tr("status_validation_none")
+        self._status_label_validation.setText(
+            LanguageManager.tr("status_validation", val_text)
+        )
+
+    def _show_progress(self, message: str):
+        """
+        Show the progress bar with a message.
+
+        Args:
+            message: The progress message to display.
+        """
+        self._progress_bar.setRange(0, 0)  # Indeterminate
+        self._progress_bar.setVisible(True)
+        self._status_bar.showMessage(message)
+
+    def _hide_progress(self):
+        """Hide the progress bar and clear the status message."""
+        self._progress_bar.setVisible(False)
+        self._status_bar.clearMessage()
+
     # ── Signal connections ────────────────────────────────────────────────
 
     def _connect_signals(self):
@@ -187,6 +496,69 @@ class MainWindow(QMainWindow):
         self.btn_validate.clicked.connect(self.on_validate_json)
         self.btn_import.clicked.connect(self.on_import_dialog)
         self.btn_export.clicked.connect(self.on_export_dialog)
+
+    # ── Keyboard shortcuts ────────────────────────────────────────────────
+
+    def _setup_shortcuts(self):
+        """Set up keyboard shortcuts for common actions."""
+        self.action_load_json.setShortcut(LanguageManager.tr("shortcut_load_json"))
+        self.action_save_json.setShortcut(LanguageManager.tr("shortcut_save_json"))
+        self.action_undo.setShortcut(LanguageManager.tr("shortcut_undo"))
+        self.action_redo.setShortcut(LanguageManager.tr("shortcut_redo"))
+        self.action_preview.setShortcut(LanguageManager.tr("shortcut_preview"))
+
+        # F5 for validate
+        self.btn_validate.setShortcut(LanguageManager.tr("shortcut_validate"))
+
+        # Ctrl+E for export
+        self.btn_export.setShortcut(LanguageManager.tr("shortcut_export"))
+
+        # Ctrl+I for import
+        self.btn_import.setShortcut(LanguageManager.tr("shortcut_import"))
+
+    # ── Drag and drop ──────────────────────────────────────────────────────
+
+    def _enable_drag_drop(self):
+        """Enable drag and drop for files on the JSON editor."""
+        self.json_text_edit.setAcceptDrops(True)
+        self.json_text_edit.dragEnterEvent = self._drag_enter_event
+        self.json_text_edit.dragMoveEvent = self._drag_move_event
+        self.json_text_edit.dropEvent = self._drop_event
+
+    def _drag_enter_event(self, event):
+        """Handle drag enter event — accept if the dragged item is a file URL."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def _drag_move_event(self, event):
+        """Handle drag move event — accept file URLs."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def _drop_event(self, event):
+        """
+        Handle drop event — load the dropped file.
+
+        Supports .json files (direct load) and .xml/.mxl/.mid/.midi files (via importer).
+        """
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        file_path = urls[0].toLocalFile()
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".json":
+            self._load_json_file(file_path)
+        elif ext in (".xml", ".mxl", ".mid", ".midi"):
+            self._import_file(file_path)
+        else:
+            logger.warning(f"Unsupported file type dropped: {ext}")
 
     # ── Logging setup ─────────────────────────────────────────────────────
 
@@ -218,6 +590,7 @@ class MainWindow(QMainWindow):
         config["language"] = lang
         self.config_manager.save_config(config)
 
+        self._update_status_bar()
         logger.info(f"Language switched to {lang}")
 
     def _retranslate_ui(self):
@@ -235,12 +608,31 @@ class MainWindow(QMainWindow):
 
         self.action_save_json.setText(LanguageManager.tr("menu_save_json"))
 
+        # Templates submenu
+        self._templates_menu.setTitle(LanguageManager.tr("menu_templates"))
+        self.action_template_blank.setText(LanguageManager.tr("menu_templates_blank"))
+        self.action_template_piano.setText(LanguageManager.tr("menu_templates_piano"))
+        self.action_template_duo.setText(LanguageManager.tr("menu_templates_duo"))
+        self.action_template_scale.setText(LanguageManager.tr("menu_templates_scale"))
+
+        # Recent files submenu
+        self._recent_menu.setTitle(LanguageManager.tr("menu_recent"))
+
         # Export submenu
         self._export_menu.setTitle(LanguageManager.tr("menu_export"))
         self.action_export_mxl.setText(LanguageManager.tr("menu_export_mxl"))
         self.action_export_midi.setText(LanguageManager.tr("menu_export_midi"))
         self.action_export_xml.setText(LanguageManager.tr("menu_export_xml"))
         self.action_export_ly.setText(LanguageManager.tr("menu_export_ly"))
+
+        # Edit menu
+        self._edit_menu.setTitle(LanguageManager.tr("menu_edit"))
+        self.action_undo.setText(LanguageManager.tr("menu_undo"))
+        self.action_redo.setText(LanguageManager.tr("menu_redo"))
+
+        # View menu
+        self._view_menu.setTitle(LanguageManager.tr("menu_view"))
+        self.action_preview.setText(LanguageManager.tr("menu_preview"))
 
         # Language menu
         self._lang_menu.setTitle(LanguageManager.tr("menu_language"))
@@ -257,6 +649,68 @@ class MainWindow(QMainWindow):
         # Placeholders
         self.json_text_edit.setPlaceholderText(LanguageManager.tr("json_placeholder"))
         self.log_console.setPlaceholderText(LanguageManager.tr("log_placeholder"))
+
+        # Re-apply shortcuts (in case labels changed)
+        self._setup_shortcuts()
+
+        # Refresh recent files menu
+        self._refresh_recent_files_menu()
+
+    # ── Recent files ──────────────────────────────────────────────────────
+
+    def _refresh_recent_files_menu(self):
+        """Rebuild the recent files submenu from the config."""
+        self._recent_menu.clear()
+        recent_files = self.config_manager.get_recent_files()
+
+        if not recent_files:
+            action = QAction(LanguageManager.tr("msg_no_recent_files"), self)
+            action.setEnabled(False)
+            self._recent_menu.addAction(action)
+            return
+
+        for file_path in recent_files:
+            if not os.path.exists(file_path):
+                continue
+            action = QAction(os.path.basename(file_path), self)
+            action.setToolTip(file_path)
+            action.triggered.connect(lambda checked, p=file_path: self._open_recent_file(p))
+            self._recent_menu.addAction(action)
+
+    def _open_recent_file(self, file_path: str):
+        """
+        Open a file from the recent files list.
+
+        Args:
+            file_path: Path to the file to open.
+        """
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".json":
+            self._load_json_file(file_path)
+        elif ext in (".xml", ".mxl", ".mid", ".midi"):
+            self._import_file(file_path)
+        else:
+            logger.warning(f"Unsupported recent file type: {ext}")
+
+    def _record_recent_file(self, file_path: str):
+        """
+        Add a file to the recent files list and refresh the menu.
+
+        Args:
+            file_path: Path to the file that was opened.
+        """
+        self.config_manager.add_recent_file(file_path)
+        self._refresh_recent_files_menu()
+
+    # ── Slots: Edit actions ───────────────────────────────────────────────
+
+    def _on_undo(self):
+        """Undo the last edit in the JSON editor."""
+        self.json_text_edit.undo()
+
+    def _on_redo(self):
+        """Redo the last undone edit in the JSON editor."""
+        self.json_text_edit.redo()
 
     # ── Slots: UI actions ─────────────────────────────────────────────────
 
@@ -279,6 +733,8 @@ class MainWindow(QMainWindow):
             json_data = json.loads(text)
             logger.info("JSON syntax is valid")
         except json.JSONDecodeError as e:
+            self._validation_status = "failed"
+            self._update_status_bar()
             QMessageBox.critical(self, LanguageManager.tr("msg_validation_result"),
                                  LanguageManager.tr("msg_json_format_error", str(e)))
             logger.error(f"JSON format validation failed: {e}")
@@ -287,38 +743,51 @@ class MainWindow(QMainWindow):
         # Step 2: Score schema validation
         is_valid, errors = json_validator.validate(json_data)
         if is_valid:
+            self._validation_status = "ok"
+            self._update_status_bar()
             QMessageBox.information(self, LanguageManager.tr("msg_validation_result"),
                                     LanguageManager.tr("msg_json_valid"))
             logger.info("JSON validation passed (valid syntax + valid score data)")
         else:
+            self._validation_status = "failed"
+            self._update_status_bar()
             error_msg = LanguageManager.tr("msg_validation_failed", "\n".join(errors))
             QMessageBox.warning(self, LanguageManager.tr("msg_validation_result"), error_msg)
             logger.warning(f"JSON validation failed: {'; '.join(errors)}")
 
-    def on_load_json(self):
+    def _load_json_file(self, file_path: str):
         """
-        Open a file dialog to load a JSON file into the editor.
+        Load a JSON file into the editor.
+
+        Args:
+            file_path: Path to the JSON file to load.
         """
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, LanguageManager.tr("fd_load_json"), "",
-            LanguageManager.tr("fd_json_filter")
-        )
-        if not file_path:
-            return
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             self.json_text_edit.setPlainText(content)
+            self._current_file_path = file_path
+            self._validation_status = "none"
+            self._update_status_bar()
+            self._record_recent_file(file_path)
             logger.info(f"Loaded JSON file: {file_path}")
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("msg_load_failed"),
                                  LanguageManager.tr("msg_cannot_load", str(e)))
             logger.error(f"Failed to load JSON file: {e}")
 
+    def on_load_json(self):
+        """Open a file dialog to load a JSON file into the editor."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, LanguageManager.tr("fd_load_json"), "",
+            LanguageManager.tr("fd_json_filter")
+        )
+        if not file_path:
+            return
+        self._load_json_file(file_path)
+
     def on_save_json(self):
-        """
-        Open a file dialog to save the editor content as a JSON file.
-        """
+        """Open a file dialog to save the editor content as a JSON file."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, LanguageManager.tr("fd_save_json"), "",
             LanguageManager.tr("fd_json_filter")
@@ -329,11 +798,35 @@ class MainWindow(QMainWindow):
             content = self.json_text_edit.toPlainText()
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
+            self._current_file_path = file_path
+            self._update_status_bar()
+            self._record_recent_file(file_path)
             logger.info(f"JSON saved to: {file_path}")
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("msg_save_failed"),
                                  LanguageManager.tr("msg_cannot_save", str(e)))
             logger.error(f"Failed to save JSON file: {e}")
+
+    # ── Template handlers ─────────────────────────────────────────────────
+
+    def on_load_template(self, template_key: str):
+        """
+        Load a pre-built template into the JSON editor.
+
+        Args:
+            template_key: Template key, one of "blank", "piano", "duo", "scale".
+        """
+        template = _TEMPLATES.get(template_key)
+        if template is None:
+            logger.warning(f"Unknown template: {template_key}")
+            return
+
+        json_text = json.dumps(template, indent=2, ensure_ascii=False)
+        self.json_text_edit.setPlainText(json_text)
+        self._current_file_path = ""
+        self._validation_status = "none"
+        self._update_status_bar()
+        logger.info(f"Loaded template: {template_key}")
 
     # ── Import handlers ───────────────────────────────────────────────────
 
@@ -354,12 +847,25 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, title, "", flt)
         if not file_path:
             return
+        self._import_file(file_path)
 
+    def _import_file(self, file_path: str):
+        """
+        Import a file via the format importer and load JSON into the editor.
+
+        Args:
+            file_path: Path to the file to import.
+        """
+        self._show_progress(LanguageManager.tr("progress_importing"))
         try:
             from core.format_importer import import_file
             json_data = import_file(file_path)
             json_text = json.dumps(json_data, indent=2, ensure_ascii=False)
             self.json_text_edit.setPlainText(json_text)
+            self._current_file_path = ""
+            self._validation_status = "none"
+            self._update_status_bar()
+            self._record_recent_file(file_path)
             QMessageBox.information(
                 self, LanguageManager.tr("msg_import_success"),
                 LanguageManager.tr("msg_import_success_content", file_path)
@@ -369,13 +875,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
                                  LanguageManager.tr("msg_import_error", str(e)))
             logger.error(f"Import failed: {e}")
+        finally:
+            self._hide_progress()
 
     def on_import_dialog(self):
-        """
-        Open a unified import dialog supporting multiple file formats.
-
-        User can pick .xml, .mxl, .mid, .midi, or .json files.
-        """
+        """Open a unified import dialog supporting multiple file formats."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, LanguageManager.tr("msg_import_hint"), "",
             LanguageManager.tr("fd_import_all_filter")
@@ -385,39 +889,18 @@ class MainWindow(QMainWindow):
 
         ext = os.path.splitext(file_path)[1].lower()
         if ext == ".json":
-            # Load JSON directly
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                self.json_text_edit.setPlainText(content)
-                logger.info(f"Loaded JSON file: {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
-                                     LanguageManager.tr("msg_import_error", str(e)))
-                logger.error(f"Failed to load JSON file: {e}")
+            self._load_json_file(file_path)
         else:
-            # Import via format_importer
-            try:
-                from core.format_importer import import_file
-                json_data = import_file(file_path)
-                json_text = json.dumps(json_data, indent=2, ensure_ascii=False)
-                self.json_text_edit.setPlainText(json_text)
-                QMessageBox.information(
-                    self, LanguageManager.tr("msg_import_success"),
-                    LanguageManager.tr("msg_import_success_content", file_path)
-                )
-                logger.info(f"Import successful: {file_path}")
-            except Exception as e:
-                QMessageBox.critical(self, LanguageManager.tr("msg_import_failed"),
-                                     LanguageManager.tr("msg_import_error", str(e)))
-                logger.error(f"Import failed: {e}")
+            self._import_file(file_path)
 
     # ── Export handlers ───────────────────────────────────────────────────
 
     def _parse_and_validate_json(self) -> dict:
         """
         Parse and validate JSON content from the editor.
-        Returns the parsed dict, or None on failure.
+
+        Returns:
+            The parsed dict, or None on failure.
         """
         text = self.json_text_edit.toPlainText().strip()
         if not text:
@@ -442,11 +925,13 @@ class MainWindow(QMainWindow):
             logger.error(f"Export failed: {error_msg}")
             return None
 
+        self._validation_status = "ok"
+        self._update_status_bar()
         return json_data
 
     def on_export_format(self, fmt: str):
         """
-        Export the JSON content to a specific format.
+        Export the JSON content to a specific format asynchronously.
 
         Args:
             fmt: Format identifier, one of "mxl", "midi", "xml", "ly".
@@ -474,29 +959,40 @@ class MainWindow(QMainWindow):
         if not file_path:
             return
 
-        try:
-            from core.music_exporter import export_score
-            export_score(json_data, file_path, fmt)
+        # Run export in a background thread
+        self._show_progress(LanguageManager.tr("progress_exporting"))
+        self._export_worker = _ExportWorker(json_data, file_path, fmt)
+        self._export_worker.finished_signal.connect(self._on_export_finished)
+        self._export_worker.start()
+
+    def _on_export_finished(self, success: bool, error_msg: str, output_path: str):
+        """
+        Handle the completion of an export operation.
+
+        Args:
+            success: Whether the export succeeded.
+            error_msg: Error message if failed, empty string if success.
+            output_path: The output file path.
+        """
+        self._hide_progress()
+        if success:
             QMessageBox.information(
                 self, LanguageManager.tr("msg_export_success"),
-                LanguageManager.tr("msg_export_success_content", file_path)
+                LanguageManager.tr("msg_export_success_content", output_path)
             )
-            logger.info(f"Export successful ({fmt}): {file_path}")
-        except Exception as e:
+            logger.info(f"Export successful: {output_path}")
+        else:
             QMessageBox.critical(self, LanguageManager.tr("msg_export_failed"),
-                                 LanguageManager.tr("msg_export_error", str(e)))
-            logger.error(f"Export failed ({fmt}): {e}")
+                                 LanguageManager.tr("msg_export_error", error_msg))
+            logger.error(f"Export failed: {error_msg}")
 
     def on_export_dialog(self):
-        """
-        Open a format selection dialog then export in the chosen format.
-        """
+        """Open a format selection dialog then export in the chosen format."""
         json_data = self._parse_and_validate_json()
         if json_data is None:
             return
 
-        # Let user choose format
-        from PyQt5.QtWidgets import QInputDialog
+        from PyQt6.QtWidgets import QInputDialog
         formats = ["mxl", "midi", "xml", "ly"]
         format_labels = [
             LanguageManager.tr("msg_format_mxl"),
@@ -513,6 +1009,51 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
-        # Map label back to format key
         fmt_key = formats[format_labels.index(fmt)]
         self.on_export_format(fmt_key)
+
+    # ── Preview handler ───────────────────────────────────────────────────
+
+    def on_preview_score(self):
+        """Generate a score preview and open it with the system viewer."""
+        text = self.json_text_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, LanguageManager.tr("msg_preview_failed"),
+                                LanguageManager.tr("msg_preview_empty"))
+            return
+
+        json_data = self._parse_and_validate_json()
+        if json_data is None:
+            return
+
+        self._show_progress(LanguageManager.tr("progress_previewing"))
+        self._preview_worker = _PreviewWorker(json_data)
+        self._preview_worker.finished_signal.connect(self._on_preview_finished)
+        self._preview_worker.start()
+
+    def _on_preview_finished(self, success: bool, file_path: str, error_msg: str):
+        """
+        Handle the completion of a preview generation.
+
+        Args:
+            success: Whether the preview was generated successfully.
+            file_path: Path to the generated preview file.
+            error_msg: Error message if failed.
+        """
+        self._hide_progress()
+        if success:
+            logger.info(f"Preview generated: {file_path}")
+            # Open with system default viewer
+            try:
+                if platform.system() == "Windows":
+                    os.startfile(file_path)
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["open", file_path])
+                else:
+                    subprocess.Popen(["xdg-open", file_path])
+            except Exception as e:
+                logger.warning(f"Could not open preview file: {e}")
+        else:
+            QMessageBox.critical(self, LanguageManager.tr("msg_preview_failed"),
+                                 LanguageManager.tr("msg_preview_error", error_msg))
+            logger.error(f"Preview failed: {error_msg}")

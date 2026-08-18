@@ -61,7 +61,7 @@ def _duration_to_str(dur) -> str:
     """
     dur_type = dur.type
     base = _DURATION_TYPE_TO_STR.get(dur_type, "quarter")
-    dots = dur.dotes if hasattr(dur, 'dotes') else 0
+    dots = dur.dots if hasattr(dur, 'dots') else 0
     if dots > 0:
         return base + "." * dots
     return base

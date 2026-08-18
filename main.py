@@ -5,7 +5,7 @@ Entry point
 
 import sys
 import os
-from PyQt5.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication
 from gui.main_window import MainWindow
 from core.config_manager import ConfigManager
 from core.i18n import LanguageManager

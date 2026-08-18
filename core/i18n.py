@@ -125,6 +125,59 @@ class LanguageManager:
             "zh": "MXL 文件 (*.mxl);;MIDI 文件 (*.mid);;MusicXML 文件 (*.xml);;LilyPond 文件 (*.ly);;所有文件 (*)",
             "en": "MXL Files (*.mxl);;MIDI Files (*.mid);;MusicXML Files (*.xml);;LilyPond Files (*.ly);;All Files (*)",
         },
+        # ── Edit menu ──
+        "menu_edit": {"zh": "编辑", "en": "Edit"},
+        "menu_undo": {"zh": "撤销", "en": "Undo"},
+        "menu_redo": {"zh": "重做", "en": "Redo"},
+        # ── View menu ──
+        "menu_view": {"zh": "视图", "en": "View"},
+        "menu_preview": {"zh": "预览乐谱", "en": "Preview Score"},
+        # ── Templates ──
+        "menu_templates": {"zh": "模板", "en": "Templates"},
+        "menu_templates_blank": {"zh": "空白模板", "en": "Blank Template"},
+        "menu_templates_piano": {"zh": "钢琴独奏", "en": "Piano Solo"},
+        "menu_templates_duo": {"zh": "二重奏", "en": "Duo"},
+        "menu_templates_scale": {"zh": "音阶练习", "en": "Scale Exercise"},
+        # ── Recent files ──
+        "menu_recent": {"zh": "最近打开", "en": "Recent Files"},
+        "msg_no_recent_files": {"zh": "无最近文件", "en": "No recent files"},
+        # ── Preview ──
+        "msg_preview_title": {"zh": "乐谱预览", "en": "Score Preview"},
+        "msg_preview_failed": {"zh": "预览失败", "en": "Preview Failed"},
+        "msg_preview_error": {
+            "zh": "无法生成预览：\n{}",
+            "en": "Cannot generate preview:\n{}",
+        },
+        "msg_preview_empty": {
+            "zh": "JSON 内容为空，请输入内容后再预览。",
+            "en": "JSON content is empty. Please enter content before previewing.",
+        },
+        # ── Status bar ──
+        "status_language": {"zh": "语言: {}", "en": "Language: {}"},
+        "status_file": {"zh": "文件: {}", "en": "File: {}"},
+        "status_file_none": {"zh": "无", "en": "None"},
+        "status_validation": {"zh": "校验: {}", "en": "Validation: {}"},
+        "status_validation_none": {"zh": "未校验", "en": "Not validated"},
+        "status_validation_ok": {"zh": "通过", "en": "Passed"},
+        "status_validation_failed": {"zh": "失败", "en": "Failed"},
+        # ── Progress ──
+        "progress_exporting": {"zh": "正在导出...", "en": "Exporting..."},
+        "progress_importing": {"zh": "正在导入...", "en": "Importing..."},
+        "progress_previewing": {"zh": "正在生成预览...", "en": "Generating preview..."},
+        # ── Drag & drop ──
+        "msg_drag_drop_hint": {
+            "zh": "拖拽文件到此处加载",
+            "en": "Drag and drop a file here to load",
+        },
+        # ── Shortcuts ──
+        "shortcut_load_json": {"zh": "Ctrl+O", "en": "Ctrl+O"},
+        "shortcut_save_json": {"zh": "Ctrl+S", "en": "Ctrl+S"},
+        "shortcut_validate": {"zh": "F5", "en": "F5"},
+        "shortcut_export": {"zh": "Ctrl+E", "en": "Ctrl+E"},
+        "shortcut_import": {"zh": "Ctrl+I", "en": "Ctrl+I"},
+        "shortcut_preview": {"zh": "Ctrl+P", "en": "Ctrl+P"},
+        "shortcut_undo": {"zh": "Ctrl+Z", "en": "Ctrl+Z"},
+        "shortcut_redo": {"zh": "Ctrl+Y", "en": "Ctrl+Y"},
     }
 
     @classmethod

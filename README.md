@@ -1,6 +1,6 @@
 # Do Muse
 
-A PyQt5 desktop application that converts JSON score data to MusicXML (.mxl) format, ready to open with **MuseScore Studio 4**.
+A PyQt6 desktop application that converts JSON score data to MusicXML (.mxl) format, ready to open with **MuseScore Studio 4**.
 
 [中文文档](#中文介绍)
 
@@ -117,7 +117,7 @@ Do-muse/
 
 | Component | Technology |
 |-----------|-----------|
-| GUI Framework | PyQt5 |
+| GUI Framework | PyQt6 |
 | Music Notation Engine | music21 |
 | Output Format | Compressed MusicXML (.mxl) |
 | Target Notation Software | MuseScore Studio 4 |
@@ -132,7 +132,7 @@ Do-muse/
 
 ## 中文介绍
 
-**Do Muse** 是一个基于 PyQt5 的桌面端乐谱生成器，通过 JSON 中间语言描述乐谱数据，导出为 `.mxl` 格式，可用 **MuseScore Studio 4** 打开。
+**Do Muse** 是一个基于 PyQt6 的桌面端乐谱生成器，通过 JSON 中间语言描述乐谱数据，导出为 `.mxl` 格式，可用 **MuseScore Studio 4** 打开。
 
 ### 快速开始
 
