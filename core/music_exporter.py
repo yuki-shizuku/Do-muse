@@ -236,12 +236,12 @@ def _remove_doctype(xml_content: str) -> str:
 
 def _score_to_clean_xml(score: stream.Score) -> str:
     """
-    Convert a music21 Score to a DOCTYPE-free MusicXML string in memory.
+    Convert a music21 Score to a DOCTYPE-free MusicXML string.
 
-    Uses GeneralObjectExporter to avoid temporary file I/O.
-    Calls parse() (not parseWellformedObject) to ensure the score goes
-    through the full conversion pipeline (makeNotation, fromGeneralObject,
-    etc.) before XML serialization.
+    Uses score.write('musicxml') to a temporary file, then reads it back
+    and removes the DOCTYPE declaration. This follows the same code path
+    as music21's official export pipeline, ensuring maximum compatibility
+    in frozen (PyInstaller) environments.
 
     Args:
         score: music21 Score object.
@@ -249,10 +249,16 @@ def _score_to_clean_xml(score: stream.Score) -> str:
     Returns:
         str: Clean MusicXML string with DOCTYPE removed.
     """
-    from music21.musicxml import m21ToXml
-    gex = m21ToXml.GeneralObjectExporter(score)
-    xml_bytes = gex.parse()
-    xml_content = xml_bytes.decode('utf-8')
+    import tempfile
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.xml')
+    os.close(tmp_fd)
+    try:
+        score.write('musicxml', fp=tmp_path)
+        with open(tmp_path, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     return _remove_doctype(xml_content)
 
 
