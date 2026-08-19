@@ -71,6 +71,117 @@ _DYNAMICS_CLASS_MAP: dict[str, str] = {
     "rinforzando": "rinforzando",
 }
 
+# Common transposing instruments and their transpose intervals (in semitones)
+# Positive numbers = transpose up, Negative numbers = transpose down
+_TRANSPOSE_INSTRUMENTS: dict[str, str] = {
+    # Bb instruments
+    "Clarinet in Bb": "2",
+    "Trumpet in Bb": "2", 
+    "Saxophone (Tenor) in Bb": "2",
+    "Saxophone (Soprano) in Bb": "2",
+    "Saxophone (Alto) in Eb": "3",  # This is actually Eb, but some might expect Bb alto
+    "Horn in F": "-5",
+    "Trumpet in C": "0",  # Non-transposing
+    "Trombone": "0",      # Non-transposing
+    "Tuba": "0",          # Non-transposing
+    "Violin": "0",        # Non-transposing
+    "Flute": "0",         # Non-transposing
+    "Oboe": "0",          # Non-transposing
+    "Bassoon": "0",       # Non-transposing
+    "Cello": "0",         # Non-transposing
+    "Double Bass": "0",   # Non-transposing (sounds octave lower, but notated at pitch)
+}
+
+# Anacrusis (pickup measure) handling
+def _calculate_anacrusis_beats(time_signature: str, first_note_duration: float) -> float:
+    """
+    Calculate the anacrusis (pickup) measure beats.
+    
+    Args:
+        time_signature: Time signature in "x/y" format.
+        first_note_duration: Duration of the first note in quarter notes.
+        
+    Returns:
+        float: Number of beats in the anacrusis measure.
+    """
+    parts = time_signature.split("/")
+    if len(parts) != 2:
+        return 0.0
+    
+    numerator = int(parts[0])
+    denominator = int(parts[1])
+    
+    # Calculate beats per measure (assuming quarter note = 1 beat)
+    beats_per_measure = numerator
+    
+    # Anacrusis is the first note duration, capped at the measure length
+    anacrusis_beats = min(first_note_duration, beats_per_measure)
+    
+    return anacrusis_beats
+
+
+# Barline style handling
+def _get_barline_style(barline_str: str) -> str:
+    """
+    Convert barline style string to music21 barline type.
+    
+    Args:
+        barline_str: Barline style string ("single", "double", "final", "dashed", "invisible")
+        
+    Returns:
+        str: music21 barline type.
+    """
+    barline_map = {
+        "single": "regular",
+        "double": "double", 
+        "final": "end",
+        "dashed": "dashed",
+        "invisible": "none"
+    }
+    return barline_map.get(barline_str, "regular")
+
+
+# Ottava (octave transposition) handling
+def _apply_ottava(part: stream.Part, ctx: "_BuildContext", n_obj, n_data: dict) -> None:
+    """
+    Apply ottava octave transposition markings to a note object.
+    
+    Args:
+        part: music21 Part being built.
+        ctx: Build context.
+        n_obj: Current note object.
+        n_data: Note JSON dict.
+    """
+    ottava = n_data.get("ottava")
+    if ottava is None:
+        return
+    
+    from music21 import spanner as spanner21
+    
+    ottava_map = {
+        "8va": 12,    # Ottava alta (up one octave)
+        "8vb": -12,   # Ottava bassa (down one octave)
+        "15ma": 24,   # Quindicesima alta (up two octaves)
+        "15mb": -24,  # Quindicesima bassa (down two octaves)
+    }
+    
+    semitones = ottava_map.get(ottava)
+    if semitones is None:
+        return
+
+    # Create ottava spanner
+    if ottava in ("8va", "15ma"):
+        ottava_spanner = spanner21.Ottava(type=ottava, placement="above")
+    elif ottava in ("8vb", "15mb"):
+        ottava_spanner = spanner21.Ottava(type=ottava, placement="below")
+    else:
+        return
+    
+    # Add the note to the spanner
+    ottava_spanner.addSpannedElements(n_obj)
+    ottava_spanner.offset = n_obj.offset
+    part.insert(ottava_spanner)
+
 
 def _create_dynamics(dynamics_str: str) -> Optional[dynamics.Dynamic]:
     """
@@ -260,6 +371,58 @@ def _score_to_clean_xml(score: stream.Score) -> str:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
     return _remove_doctype(xml_content)
+
+
+def _get_transpose_interval(instrument_name: str, custom_transpose: str = None) -> int:
+    """
+    Get the transpose interval for an instrument.
+    
+    Args:
+        instrument_name: The instrument name (from GM mapping).
+        custom_transpose: Custom transpose interval from JSON (optional).
+        
+    Returns:
+        int: Transpose interval in semitones (positive = up, negative = down, 0 = no transpose).
+    """
+    if custom_transpose is not None:
+        return int(custom_transpose)
+    
+    # Check common transposing instruments
+    return int(_TRANSPOSE_INSTRUMENTS.get(instrument_name, "0"))
+
+
+def _apply_transpose_to_note(n_obj, transpose_interval: int) -> None:
+    """
+    Apply transposition to a note object.
+    
+    Args:
+        n_obj: music21 Note or Rest object.
+        transpose_interval: Transpose interval in semitones (positive = up, negative = down).
+    """
+    if transpose_interval == 0 or isinstance(n_obj, note.Rest):
+        return
+    
+    try:
+        # Transpose the note by the specified interval
+        transposed_note = n_obj.transpose(transpose_interval)
+        # Copy all attributes to the transposed note
+        transposed_note.duration = n_obj.duration
+        transposed_note.articulations = n_obj.articulations
+        transposed_note.expressions = n_obj.expressions
+        transposed_note.lyrics = n_obj.lyrics
+        transposed_note.tie = n_obj.tie
+        transposed_note.volume = n_obj.volume
+        
+        # Replace the original note with the transposed one
+        n_obj.pitch = transposed_note.pitch
+        n_obj.articulations = transposed_note.articulations
+        n_obj.expressions = transposed_note.expressions
+        n_obj.lyrics = transposed_note.lyrics
+        n_obj.tie = transposed_note.tie
+        n_obj.volume = transposed_note.volume
+    except Exception:
+        # If transposition fails, keep the original note
+        pass
 
 
 def _get_clef_for_program(program_number: int) -> str:
@@ -861,147 +1024,436 @@ def _build_score(json_data: dict) -> stream.Score:
         instrument_name = track.get("instrument", "Acoustic Grand Piano")
         program_number = gm_mapping.get_program_number(instrument_name)
 
-        part = stream.Part()
+        voices = track.get("voices")
+        notes = track.get("notes")
 
-        # Set instrument
-        inst = instrument.Instrument()
-        inst.midiProgram = program_number
-        inst.instrumentName = instrument_name
-        part.insert(0, inst)
+        # Handle multivoice support
+        if voices is not None:
+            # For multivoice tracks, create multiple parts (one per voice)
+            voice_parts = []
+            for voice_idx, voice in enumerate(voices):
+                voice_name = voice.get("name", f"Voice {voice_idx + 1}")
+                voice_notes = voice.get("notes", [])
 
-        # Insert time signature, key signature, tempo at the start
-        time_sig = meta.get("time_signature", "4/4")
-        part.insert(0, meter.TimeSignature(time_sig))
+                part = stream.Part()
+                part.id = f"{instrument_name}_{voice_name}"
 
-        key_sig = meta.get("key_signature")
-        if key_sig:
-            part.insert(0, key.Key(key_sig))
+                # Set instrument for the part
+                inst = instrument.Instrument()
+                inst.midiProgram = program_number
+                inst.instrumentName = f"{instrument_name} ({voice_name})"
+                part.insert(0, inst)
 
-        bpm = meta.get("tempo_bpm", 120)
-        part.insert(0, tempo.MetronomeMark(number=bpm))
+                # Insert time signature, key signature, tempo at the start
+                time_sig = meta.get("time_signature", "4/4")
+                part.insert(0, meter.TimeSignature(time_sig))
 
-        # Set clef based on instrument
-        clef_name = _get_clef_for_program(program_number)
-        if clef_name == "bass":
-            part.insert(0, clef.BassClef())
-        elif clef_name == "alto":
-            part.insert(0, clef.AltoClef())
-        else:
-            part.insert(0, clef.TrebleClef())
+                key_sig = meta.get("key_signature")
+                if key_sig:
+                    part.insert(0, key.Key(key_sig))
 
-        # Volta (1st/2nd ending) bracket — store for later insertion
-        volta_num = track.get("volta")
-        # Build context for this track
-        ctx = _BuildContext(offset=0.0, current_tempo=float(bpm))
+                bpm = meta.get("tempo_bpm", 120)
+                part.insert(0, tempo.MetronomeMark(number=bpm))
 
-        for n in track.get("notes", []):
-            pitch = n.get("pitch")
-            dur_str = n.get("duration", "quarter")
-            vel = n.get("velocity", 80)
+                # Set clef based on instrument and voice position
+                clef_name = _get_clef_for_program(program_number)
+                
+                # Handle multi-staff instruments
+                if instrument_name == "Acoustic Grand Piano" and len(voices) == 2:
+                    # Piano: right hand = treble, left hand = bass
+                    if voice_idx == 0:  # Right hand
+                        part.insert(0, clef.TrebleClef())
+                    else:  # Left hand
+                        part.insert(0, clef.BassClef())
+                elif instrument_name == "Organ" and len(voices) >= 2:
+                    # Organ: manuals = treble, pedal = bass
+                    if voice_idx == 0:  # Right manual
+                        part.insert(0, clef.TrebleClef())
+                    elif voice_idx == 1:  # Left manual
+                        part.insert(0, clef.TrebleClef())
+                    else:  # Pedal
+                        part.insert(0, clef.BassClef())
+                elif instrument_name == "Drum Kit" and len(voices) >= 2:
+                    # Drum Kit: multiple percussion staves
+                    if voice_idx == 0:  # Snare/ride staff
+                        part.insert(0, clef.TrebleClef())
+                    else:  # Bass drum/cymbals staff
+                        part.insert(0, clef.BassClef())
+                elif instrument_name == "Harp" and len(voices) == 2:
+                    # Harp: upper and lower ranges
+                    if voice_idx == 0:  # Upper range
+                        part.insert(0, clef.TrebleClef())
+                    else:  # Lower range
+                        part.insert(0, clef.BassClef())
+                elif instrument_name in ("Choir Aahs", "Voice Oohs") and len(voices) >= 2:
+                    # Choir (SATB): Soprano/Alto = treble, Tenor/Bass = bass
+                    if len(voices) == 4 and voice_idx >= 2:
+                        part.insert(0, clef.BassClef())
+                    else:
+                        part.insert(0, clef.TrebleClef())
+                elif instrument_name == "Piano" and len(voices) >= 3:
+                    # Extended piano with multiple staves
+                    if voice_idx == 0:  # Right hand
+                        part.insert(0, clef.TrebleClef())
+                    elif voice_idx == 1:  # Left hand
+                        part.insert(0, clef.BassClef())
+                    else:  # Additional voices (e.g., percussion)
+                        part.insert(0, clef.TrebleClef())
+                elif clef_name == "bass":
+                    part.insert(0, clef.BassClef())
+                elif clef_name == "alto":
+                    part.insert(0, clef.AltoClef())
+                else:
+                    part.insert(0, clef.TrebleClef())
 
-            dur_type, dot_count, dur_float = _parse_duration_data(dur_str)
+                # Build context for this voice
+                ctx = _BuildContext(offset=0.0, current_tempo=float(bpm))
 
-            # Build the core note/rest object
-            n_obj = _build_note_object(n, dur_type, dot_count, vel)
+                # Process notes for this voice
+                for n in voice_notes:
+                    pitch = n.get("pitch")
+                    dur_str = n.get("duration", "quarter")
+                    vel = n.get("velocity", 80)
 
-            # Apply simple markings
-            _apply_note_markings(n_obj, n)
+                    dur_type, dot_count, dur_float = _parse_duration_data(dur_str)
 
-            # Grace note (inserted before the main note)
-            _process_grace_note(part, ctx, n)
+                    # Build the core note/rest object
+                    n_obj = _build_note_object(n, dur_type, dot_count, vel)
 
-            # Fermata
-            _process_fermata(n_obj, n)
+                    # Apply transposition if needed
+                    custom_transpose = voice.get("instrument_transpose")
+                    transpose_interval = _get_transpose_interval(instrument_name, custom_transpose)
+                    if transpose_interval != 0:
+                        _apply_transpose_to_note(n_obj, transpose_interval)
 
-            # Tempo change
-            _process_tempo_change(part, ctx, n)
+                    # Apply simple markings
+                    _apply_note_markings(n_obj, n)
 
-            # Text annotation
-            _process_text(part, ctx, n)
+                    # Grace note (inserted before the main note)
+                    _process_grace_note(part, ctx, n)
 
-            # Pedal marking
-            _process_pedal(part, ctx, n)
+                    # Fermata
+                    _process_fermata(n_obj, n)
 
-            # Chord (may replace n_obj)
-            n_obj = _process_chord(n_obj, n, vel)
+                    # Tempo change
+                    _process_tempo_change(part, ctx, n)
 
-            # Time signature change
-            _process_time_sig_change(part, ctx, n)
+                    # Text annotation
+                    _process_text(part, ctx, n)
 
-            # Key signature change
-            _process_key_sig_change(part, ctx, n)
+                    # Pedal marking
+                    _process_pedal(part, ctx, n)
 
-            # Arpeggio
-            _process_arpeggio(n_obj, n)
+                    # Chord (may replace n_obj)
+                    n_obj = _process_chord(n_obj, n, vel)
 
-            # Tremolo
-            _process_tremolo(n_obj, n)
+                    # Time signature change
+                    _process_time_sig_change(part, ctx, n)
 
-            # Glissando (also updates ctx.prev_note)
-            _process_glissando(part, ctx, n_obj, n)
+                    # Key signature change
+                    _process_key_sig_change(part, ctx, n)
 
-            # Slur
-            _process_slur(part, ctx, n_obj, n)
+                    # Arpeggio
+                    _process_arpeggio(n_obj, n)
 
-            # Navigation
-            _process_navigation(part, ctx, n)
+                    # Tremolo
+                    _process_tremolo(n_obj, n)
 
-            # Hairpin
-            _process_hairpin(part, ctx, n_obj, n)
+                    # Glissando (also updates ctx.prev_note)
+                    _process_glissando(part, ctx, n_obj, n)
 
-            # Tempo gradual
-            _process_tempo_gradual(part, ctx, n)
+                    # Slur
+                    _process_slur(part, ctx, n_obj, n)
 
-            # Subito
-            _process_subito(part, ctx, n)
+                    # Navigation
+                    _process_navigation(part, ctx, n)
 
-            # Expression
-            _process_expression(part, ctx, n)
+                    # Hairpin
+                    _process_hairpin(part, ctx, n_obj, n)
 
-            # Tuplet
-            tuplet_val = n.get("tuplet")
-            if tuplet_val:
-                from music21 import duration
-                tuplet = duration.Tuplet(tuplet_val, _get_tuplet_normal(tuplet_val))
-                n_obj.duration.appendTuplet(tuplet)
-                dur_float_adjusted = dur_float * (_get_tuplet_normal(tuplet_val) / tuplet_val)
+                    # Tempo gradual
+                    _process_tempo_gradual(part, ctx, n)
+
+                    # Subito
+                    _process_subito(part, ctx, n)
+
+                    # Expression
+                    _process_expression(part, ctx, n)
+
+                    # Ottava (octave transposition)
+                    _apply_ottava(part, ctx, n_obj, n)
+
+                    # Tuplet
+                    tuplet_val = n.get("tuplet")
+                    if tuplet_val:
+                        from music21 import duration
+                        tuplet = duration.Tuplet(tuplet_val, _get_tuplet_normal(tuplet_val))
+                        n_obj.duration.appendTuplet(tuplet)
+                        dur_float_adjusted = dur_float * (_get_tuplet_normal(tuplet_val) / tuplet_val)
+                    else:
+                        dur_float_adjusted = dur_float
+
+                    n_obj.offset = ctx.offset
+                    part.insert(n_obj)
+                    ctx.offset += dur_float_adjusted
+
+                # Handle anacrusis (pickup measure) if specified
+                anacrusis_beats = 0.0
+                if meta.get("anacrusis") and len(voice_notes) > 0:
+                    first_note_duration = voice_notes[0].get("duration", "quarter")
+                    dur_type, dot_count, dur_float = _parse_duration_data(first_note_duration)
+                    anacrusis_beats = _calculate_anacrusis_beats(
+                        meta.get("time_signature", "4/4"), 
+                        dur_float
+                    )
+                    
+                    # If there's an anacrusis, set the first measure appropriately
+                    if anacrusis_beats > 0:
+                        part.makeMeasures(inPlace=True, anacrusisBeats=anacrusis_beats)
+                    else:
+                        part.makeMeasures(inPlace=True)
+                else:
+                    # Convert flat stream to measure-based stream for repeat/volta support
+                    from music21 import bar
+                    volta_num = track.get("volta")
+                    repeat_begin = track.get("repeat_begin")
+                    repeat_end = track.get("repeat_end")
+
+                    has_repeat = (repeat_begin is not None and repeat_begin) or \
+                                 (repeat_end is not None and repeat_end)
+
+                    if has_repeat or volta_num is not None:
+                        # makeMeasures converts the flat stream into measures,
+                        # enabling proper repeat barline and volta bracket placement
+                        part.makeMeasures(inPlace=True)
+
+                    if repeat_begin or repeat_end or volta_num:
+                        measures = part.getElementsByClass(stream.Measure)
+                        first_measure = measures.first()
+                        last_measure = measures.last()
+
+                        if repeat_begin and first_measure is not None:
+                            first_measure.leftBarline = bar.Repeat(direction="start")
+
+                        if repeat_end and last_measure is not None:
+                            last_measure.rightBarline = bar.Repeat(direction="end")
+
+                        if volta_num and first_measure is not None:
+                            volta_spanner = spanner21.RepeatBracket(number=int(volta_num))
+                            volta_spanner.addSpannedElements(first_measure)
+                            part.insert(0, volta_spanner)
+
+                        # Apply custom barline styles
+                        custom_barline = voice.get("barline")
+                        if custom_barline and first_measure is not None:
+                            barline_style = _get_barline_style(custom_barline)
+                            if barline_style == "end":
+                                # Final barline (double with end)
+                                first_measure.leftBarline = bar.Barline("end")
+                            elif barline_style == "double":
+                                first_measure.leftBarline = bar.Barline("double")
+                            elif barline_style == "dashed":
+                                first_measure.leftBarline = bar.Barline("dashed")
+                            elif barline_style == "none":
+                                first_measure.leftBarline = bar.Barline("none")
+                            # "regular" is the default, no need to set
+
+                voice_parts.append(part)
+
+            # Group multi-staff instruments into a braced grand-staff group
+            # (piano, organ, harp); other multi-voice tracks (e.g. SATB choir)
+            # stay as separate staves rendered side by side.
+            if instrument_name in ("Acoustic Grand Piano", "Piano", "Organ", "Harp") and len(voice_parts) >= 2:
+                from music21 import layout as layout21
+                group = layout21.StaffGroup(*voice_parts, symbol="brace",
+                                            name=instrument_name, barTogether=True)
+                score.insert(0, group)
+            for p in voice_parts:
+                score.append(p)
+
+        # Handle backward compatibility (single voice)
+        elif notes is not None:
+            part = stream.Part()
+
+            # Set instrument
+            inst = instrument.Instrument()
+            inst.midiProgram = program_number
+            inst.instrumentName = instrument_name
+            part.insert(0, inst)
+
+            # Insert time signature, key signature, tempo at the start
+            time_sig = meta.get("time_signature", "4/4")
+            part.insert(0, meter.TimeSignature(time_sig))
+
+            key_sig = meta.get("key_signature")
+            if key_sig:
+                part.insert(0, key.Key(key_sig))
+
+            bpm = meta.get("tempo_bpm", 120)
+            part.insert(0, tempo.MetronomeMark(number=bpm))
+
+            # Set clef based on instrument
+            clef_name = _get_clef_for_program(program_number)
+            if clef_name == "bass":
+                part.insert(0, clef.BassClef())
+            elif clef_name == "alto":
+                part.insert(0, clef.AltoClef())
             else:
-                dur_float_adjusted = dur_float
+                part.insert(0, clef.TrebleClef())
 
-            n_obj.offset = ctx.offset
-            part.insert(n_obj)
-            ctx.offset += dur_float_adjusted
+            # Volta (1st/2nd ending) bracket — store for later insertion
+            volta_num = track.get("volta")
+            # Build context for this track
+            ctx = _BuildContext(offset=0.0, current_tempo=float(bpm))
 
-        # Convert flat stream to measure-based stream for repeat/volta support
-        from music21 import bar
-        repeat_begin = track.get("repeat_begin")
-        repeat_end = track.get("repeat_end")
+            for n in notes:
+                pitch = n.get("pitch")
+                dur_str = n.get("duration", "quarter")
+                vel = n.get("velocity", 80)
 
-        has_repeat = (repeat_begin is not None and repeat_begin) or \
-                     (repeat_end is not None and repeat_end)
+                dur_type, dot_count, dur_float = _parse_duration_data(dur_str)
 
-        if has_repeat or volta_num is not None:
-            # makeMeasures converts the flat stream into measures,
-            # enabling proper repeat barline and volta bracket placement
-            part.makeMeasures(inPlace=True)
+                # Build the core note/rest object
+                n_obj = _build_note_object(n, dur_type, dot_count, vel)
 
-            if repeat_begin or repeat_end or volta_num:
-                measures = part.getElementsByClass(stream.Measure)
-                first_measure = measures.first()
-                last_measure = measures.last()
+                # Apply transposition if needed
+                custom_transpose = track.get("instrument_transpose")
+                transpose_interval = _get_transpose_interval(instrument_name, custom_transpose)
+                if transpose_interval != 0:
+                    _apply_transpose_to_note(n_obj, transpose_interval)
 
-                if repeat_begin and first_measure is not None:
-                    first_measure.leftBarline = bar.Repeat(direction="start")
+                # Apply simple markings
+                _apply_note_markings(n_obj, n)
 
-                if repeat_end and last_measure is not None:
-                    last_measure.rightBarline = bar.Repeat(direction="end")
+                # Grace note (inserted before the main note)
+                _process_grace_note(part, ctx, n)
 
-                if volta_num and first_measure is not None:
-                    volta_spanner = spanner21.Volta("volta", number=volta_num)
-                    volta_spanner.addSpannedElements(first_measure)
-                    part.insert(0, volta_spanner)
+                # Fermata
+                _process_fermata(n_obj, n)
 
-        score.append(part)
+                # Tempo change
+                _process_tempo_change(part, ctx, n)
+
+                # Text annotation
+                _process_text(part, ctx, n)
+
+                # Pedal marking
+                _process_pedal(part, ctx, n)
+
+                # Chord (may replace n_obj)
+                n_obj = _process_chord(n_obj, n, vel)
+
+                # Time signature change
+                _process_time_sig_change(part, ctx, n)
+
+                # Key signature change
+                _process_key_sig_change(part, ctx, n)
+
+                # Arpeggio
+                _process_arpeggio(n_obj, n)
+
+                # Tremolo
+                _process_tremolo(n_obj, n)
+
+                # Glissando (also updates ctx.prev_note)
+                _process_glissando(part, ctx, n_obj, n)
+
+                # Slur
+                _process_slur(part, ctx, n_obj, n)
+
+                # Navigation
+                _process_navigation(part, ctx, n)
+
+                # Hairpin
+                _process_hairpin(part, ctx, n_obj, n)
+
+                # Tempo gradual
+                _process_tempo_gradual(part, ctx, n)
+
+                # Subito
+                _process_subito(part, ctx, n)
+
+                # Expression
+                _process_expression(part, ctx, n)
+
+                # Ottava (octave transposition)
+                _apply_ottava(part, ctx, n_obj, n)
+
+                # Tuplet
+                tuplet_val = n.get("tuplet")
+                if tuplet_val:
+                    from music21 import duration
+                    tuplet = duration.Tuplet(tuplet_val, _get_tuplet_normal(tuplet_val))
+                    n_obj.duration.appendTuplet(tuplet)
+                    dur_float_adjusted = dur_float * (_get_tuplet_normal(tuplet_val) / tuplet_val)
+                else:
+                    dur_float_adjusted = dur_float
+
+                n_obj.offset = ctx.offset
+                part.insert(n_obj)
+                ctx.offset += dur_float_adjusted
+
+            # Handle anacrusis (pickup measure) if specified
+            anacrusis_beats = 0.0
+            if meta.get("anacrusis") and len(notes) > 0:
+                first_note_duration = notes[0].get("duration", "quarter")
+                dur_type, dot_count, dur_float = _parse_duration_data(first_note_duration)
+                anacrusis_beats = _calculate_anacrusis_beats(
+                    meta.get("time_signature", "4/4"), 
+                    dur_float
+                )
+                
+                # If there's an anacrusis, set the first measure appropriately
+                if anacrusis_beats > 0:
+                    part.makeMeasures(inPlace=True, anacrusisBeats=anacrusis_beats)
+                else:
+                    part.makeMeasures(inPlace=True)
+            else:
+                # Convert flat stream to measure-based stream for repeat/volta support
+                from music21 import bar
+                repeat_begin = track.get("repeat_begin")
+                repeat_end = track.get("repeat_end")
+
+                has_repeat = (repeat_begin is not None and repeat_begin) or \
+                             (repeat_end is not None and repeat_end)
+
+                if has_repeat or volta_num is not None:
+                    # makeMeasures converts the flat stream into measures,
+                    # enabling proper repeat barline and volta bracket placement
+                    part.makeMeasures(inPlace=True)
+
+                if repeat_begin or repeat_end or volta_num:
+                    measures = part.getElementsByClass(stream.Measure)
+                    first_measure = measures.first()
+                    last_measure = measures.last()
+
+                    if repeat_begin and first_measure is not None:
+                        first_measure.leftBarline = bar.Repeat(direction="start")
+
+                    if repeat_end and last_measure is not None:
+                        last_measure.rightBarline = bar.Repeat(direction="end")
+
+                    if volta_num and first_measure is not None:
+                        volta_spanner = spanner21.RepeatBracket(number=int(volta_num))
+                        volta_spanner.addSpannedElements(first_measure)
+                        part.insert(0, volta_spanner)
+
+                    # Apply custom barline styles
+                    custom_barline = track.get("barline")
+                    if custom_barline and first_measure is not None:
+                        barline_style = _get_barline_style(custom_barline)
+                        if barline_style == "end":
+                            # Final barline (double with end)
+                            first_measure.leftBarline = bar.Barline("end")
+                        elif barline_style == "double":
+                            first_measure.leftBarline = bar.Barline("double")
+                        elif barline_style == "dashed":
+                            first_measure.leftBarline = bar.Barline("dashed")
+                        elif barline_style == "none":
+                            first_measure.leftBarline = bar.Barline("none")
+                        # "regular" is the default, no need to set
+
+            score.append(part)
 
     return score
 

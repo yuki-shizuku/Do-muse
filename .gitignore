@@ -22,3 +22,11 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Workspace memory (WorkBuddy internal)
+.workbuddy/
+
+# PyInstaller build artifacts (sandbox blocks deletion; keep ignored)
+_pybuild/
+_pydist/
+build.log

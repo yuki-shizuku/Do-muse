@@ -39,6 +39,41 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(base, relative_path)
 
 
+def ensure_icon_exists() -> str:
+    """
+    Ensure the icon file exists. If not, create a default one.
+    
+    Returns:
+        str: Path to the icon file.
+    """
+    icon_path = get_app_dir()
+    if _is_frozen():
+        # 在打包模式下，图标应该已经在exe中
+        icon_file = os.path.join(icon_path, "domuse.ico")
+    else:
+        # 在开发模式下，使用windows文件夹中的图标
+        icon_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "windows", "domuse.ico")
+    
+    # 如果图标文件不存在，创建一个默认的
+    if not os.path.exists(icon_file):
+        try:
+            import subprocess
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            create_icon_script = os.path.join(script_dir, "create_default_icon.py")
+            
+            if os.path.exists(create_icon_script):
+                result = subprocess.run([sys.executable, create_icon_script], 
+                                      capture_output=True, text=True, cwd=script_dir)
+                if result.returncode == 0:
+                    print("默认图标已创建")
+                else:
+                    print(f"创建图标失败: {result.stderr}")
+        except Exception as e:
+            print(f"创建图标时出错: {e}")
+    
+    return icon_file
+
+
 def get_app_dir() -> str:
     """
     Get the writable application directory.

@@ -33,6 +33,7 @@ a = Analysis(
     datas=[
         ('resources/style.qss', 'resources'),
         ('resources/style_dark.qss', 'resources'),
+        ('windows/domuse.ico', '.'),
     ],
     hiddenimports=_m21_hidden + [
         'music21',
@@ -88,4 +89,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='windows/domuse.ico',
 )

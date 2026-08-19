@@ -215,3 +215,150 @@ python main.py -i score.json -e output.mid -f midi
 ```
 
 完整数据格式说明请参阅 [JSON_Format_Specification.md](JSON_Format_Specification.md)。
+
+---
+
+## 🏗️ 构建和发布
+
+### 构建Windows可执行文件
+
+#### 方法一：使用构建脚本（推荐）
+
+**Windows用户：**
+```bash
+# 运行构建脚本
+build_release.bat
+```
+
+**Linux/Mac用户：**
+```bash
+# 运行构建脚本
+chmod +x build_release.sh
+./build_release.sh
+```
+
+#### 方法二：手动构建
+
+```bash
+# 1. 创建虚拟环境
+uv venv
+
+# 2. 激活虚拟环境
+# Windows:
+.venv\Scripts\activate
+# Linux/Mac:
+source .venv/bin/activate
+
+# 3. 安装依赖
+uv pip install -r requirements.txt
+
+# 4. 生成图标文件（如果需要）
+python create_default_icon.py
+
+# 5. 执行打包
+uv run pyinstaller DoMuse.spec
+```
+
+### GitHub Release
+
+#### 创建Release
+1. 推送代码到GitHub仓库
+2. 在GitHub仓库页面点击 "Releases"
+3. 点击 "Create a new release"
+4. **Tag标签**: `DoMuse_windows.zip`
+5. **标题**: `Do Muse Windows Release v{版本号}`
+6. **描述**: 更新新版本特性和修复
+7. 点击 "Choose files" 上传 `build_release.bat` 生成的 `DoMuse_windows.zip`
+
+#### Release内容
+Release包包含：
+- `DoMuse.exe` - 主程序
+- `domuse.ico` - 程序图标
+- `README.txt` - 使用说明
+- `README.md` - 项目文档
+- `LICENSE` - 许可证文件
+- `JSON_Format_Specification.md` - JSON格式规范
+
+### 版本管理
+
+#### 版本号格式
+使用语义化版本号：`主版本号.次版本号.修订号`
+- **主版本号**: 不兼容的API修改
+- **次版本号**: 向下兼容的功能性新增
+- **修订号**: 向下兼容的问题修正
+
+#### 发布流程
+1. 更新 `README.md` 中的版本信息
+2. 运行构建脚本生成Release包
+3. 创建GitHub Release并上传 `DoMuse_windows.zip`
+4. 设置Tag为 `DoMuse_windows.zip`
+5. 发布Release并通知用户
+
+---
+
+## 📁 项目结构
+
+```
+Do-Muse/
+├── main.py                    # 程序入口
+├── requirements.txt           # Python依赖
+├── DoMuse.spec               # PyInstaller配置
+├── create_default_icon.py     # 图标生成脚本
+├── build_release.bat/.sh     # 构建脚本
+├── core/                    # 核心模块
+│   ├── config_manager.py     # 配置管理
+│   ├── format_importer.py    # 格式导入
+│   ├── gm_mapping.py        # MIDI乐器映射
+│   ├── i18n.py              # 国际化
+│   ├── json_validator.py    # JSON验证
+│   └── music_exporter.py    # 音乐导出
+├── gui/                     # GUI模块
+│   ├── main_window.py       # 主窗口
+│   ├── json_highlighter.py  # JSON语法高亮
+│   ├── log_handler.py       # 日志处理
+│   ├── templates.py         # 模板系统
+│   └── workers.py           # 工作线程
+├── resources/               # 资源文件
+│   ├── style.qss           # 浅色主题
+│   └── style_dark.qss      # 深色主题
+├── windows/                 # Windows相关文件
+│   ├── domuse.ico          # 程序图标
+│   └── JSON_Format_Specification.md
+├── tests/                   # 测试文件
+├── dist/                   # 构建输出（不提交）
+└── .venv/                  # 虚拟环境（不提交）
+```
+
+## 🤝 贡献指南
+
+欢迎提交Issue和Pull Request！
+
+### 开发环境设置
+1. Fork项目
+2. 克隆到本地：`git clone https://github.com/your-username/Do-Muse.git`
+3. 创建虚拟环境：`uv venv`
+4. 安装依赖：`uv pip install -r requirements.txt`
+5. 运行开发：`python main.py`
+
+### 提交规范
+- feat: 新功能
+- fix: 修复bug
+- docs: 文档更新
+- style: 代码格式化
+- refactor: 代码重构
+- test: 测试相关
+- chore: 构建或辅助工具的变动
+
+---
+
+## 📄 许可证
+
+[MIT](LICENSE)
+
+---
+
+## 📞 联系方式
+
+- 项目地址：https://github.com/your-username/Do-Muse
+- 问题反馈：[GitHub Issues](https://github.com/your-username/Do-Muse/issues)
+- 邮箱：your-email@example.com

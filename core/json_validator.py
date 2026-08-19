@@ -40,6 +40,15 @@ _DEFAULT_TITLE = "Untitled"
 _DEFAULT_COMPOSER = "Unknown"
 _DEFAULT_VELOCITY = 80
 
+# Voice validation constants
+_VOICE_NAME_MAX_LENGTH = 50
+
+# Transpose instrument constants
+_VALID_TRANSPOSE_INTERVALS = {"-12", "-11", "-10", "-9", "-8", "-7", "-6", "-5", "-4", "-3", "-2", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}
+
+# Barline style constants
+_VALID_BARLINE_STYLES = {"single", "double", "final", "dashed", "invisible"}
+
 
 def _is_valid_duration(duration_str: str) -> bool:
     """
@@ -83,15 +92,19 @@ def _expand_macros(json_data: dict) -> list:
     errors = []
 
     macros = json_data.get("macros")
-    if macros is None:
-        return errors
+    macros_present = macros is not None
+    if not macros_present:
+        # No macros block defined: treat as an empty dict so that any
+        # {"ref": ...} used in notes is still reported as an *undefined* macro
+        # reference below (instead of being silently ignored).
+        macros = {}
 
     # Validate macros structure
     if not isinstance(macros, dict):
         errors.append("macros must be an object (dict)")
         return errors
 
-    if len(macros) == 0:
+    if macros_present and len(macros) == 0:
         errors.append("macros cannot be empty")
         return errors
 
@@ -146,56 +159,113 @@ def _expand_macros(json_data: dict) -> list:
             if not isinstance(track, dict):
                 continue
 
+            # Check for voices field (multivoice support)
+            voices = track.get("voices")
             notes = track.get("notes")
-            if notes is None or not isinstance(notes, list):
-                continue
+            
+            # Expand macros in voices
+            if voices is not None:
+                for v_idx, voice in enumerate(voices):
+                    if not isinstance(voice, dict):
+                        continue
+                    
+                    voice_notes = voice.get("notes")
+                    if voice_notes is None or not isinstance(voice_notes, list):
+                        continue
+                    
+                    expanded_notes = []
+                    for n_idx, note_obj in enumerate(voice_notes):
+                        if not isinstance(note_obj, dict):
+                            expanded_notes.append(note_obj)
+                            continue
 
-            expanded_notes = []
-            for n_idx, note_obj in enumerate(notes):
-                if not isinstance(note_obj, dict):
-                    expanded_notes.append(note_obj)
-                    continue
+                        ref = note_obj.get("ref")
+                        if ref is not None:
+                            # Validate ref field is a string
+                            if not isinstance(ref, str):
+                                errors.append(
+                                    f"Track {t_idx + 1}, voice {v_idx + 1}, note {n_idx + 1}: "
+                                    "'ref' must be a string"
+                                )
+                                expanded_notes.append(note_obj)
+                                continue
 
-                ref = note_obj.get("ref")
-                if ref is not None:
-                    # Validate ref field is a string
-                    if not isinstance(ref, str):
-                        errors.append(
-                            f"Track {t_idx + 1}, note {n_idx + 1}: "
-                            "'ref' must be a string"
-                        )
+                            # Check ref doesn't coexist with other fields
+                            other_keys = [k for k in note_obj if k != "ref"]
+                            if other_keys:
+                                errors.append(
+                                    f"Track {t_idx + 1}, voice {v_idx + 1}, note {n_idx + 1}: "
+                                    "'ref' cannot coexist with other fields "
+                                    f"({', '.join(other_keys)})"
+                                )
+                                expanded_notes.append(note_obj)
+                                continue
+
+                            # Look up the macro
+                            if ref not in macros:
+                                errors.append(
+                                    f"Track {t_idx + 1}, voice {v_idx + 1}, note {n_idx + 1}: "
+                                    f"macro '{ref}' is not defined"
+                                )
+                                expanded_notes.append(note_obj)
+                                continue
+
+                            # Expand: deep copy macro notes to avoid mutation issues
+                            expanded_notes.extend(copy.deepcopy(macros[ref]))
+                        else:
+                            expanded_notes.append(note_obj)
+
+                    voice["notes"] = expanded_notes
+            
+            # Expand macros in notes (backward compatibility)
+            elif notes is not None and isinstance(notes, list):
+                expanded_notes = []
+                for n_idx, note_obj in enumerate(notes):
+                    if not isinstance(note_obj, dict):
                         expanded_notes.append(note_obj)
                         continue
 
-                    # Check ref doesn't coexist with other fields
-                    other_keys = [k for k in note_obj if k != "ref"]
-                    if other_keys:
-                        errors.append(
-                            f"Track {t_idx + 1}, note {n_idx + 1}: "
-                            "'ref' cannot coexist with other fields "
-                            f"({', '.join(other_keys)})"
-                        )
+                    ref = note_obj.get("ref")
+                    if ref is not None:
+                        # Validate ref field is a string
+                        if not isinstance(ref, str):
+                            errors.append(
+                                f"Track {t_idx + 1}, note {n_idx + 1}: "
+                                "'ref' must be a string"
+                            )
+                            expanded_notes.append(note_obj)
+                            continue
+
+                        # Check ref doesn't coexist with other fields
+                        other_keys = [k for k in note_obj if k != "ref"]
+                        if other_keys:
+                            errors.append(
+                                f"Track {t_idx + 1}, note {n_idx + 1}: "
+                                "'ref' cannot coexist with other fields "
+                                f"({', '.join(other_keys)})"
+                            )
+                            expanded_notes.append(note_obj)
+                            continue
+
+                        # Look up the macro
+                        if ref not in macros:
+                            errors.append(
+                                f"Track {t_idx + 1}, note {n_idx + 1}: "
+                                f"macro '{ref}' is not defined"
+                            )
+                            expanded_notes.append(note_obj)
+                            continue
+
+                        # Expand: deep copy macro notes to avoid mutation issues
+                        expanded_notes.extend(copy.deepcopy(macros[ref]))
+                    else:
                         expanded_notes.append(note_obj)
-                        continue
 
-                    # Look up the macro
-                    if ref not in macros:
-                        errors.append(
-                            f"Track {t_idx + 1}, note {n_idx + 1}: "
-                            f"macro '{ref}' is not defined"
-                        )
-                        expanded_notes.append(note_obj)
-                        continue
-
-                    # Expand: deep copy macro notes to avoid mutation issues
-                    expanded_notes.extend(copy.deepcopy(macros[ref]))
-                else:
-                    expanded_notes.append(note_obj)
-
-            track["notes"] = expanded_notes
+                track["notes"] = expanded_notes
 
     # Remove macros field after expansion
-    del json_data["macros"]
+    if macros_present:
+        del json_data["macros"]
 
     return errors
 
@@ -262,6 +332,12 @@ def validate(json_data: dict) -> tuple:
             if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
                 errors.append("metadata.time_signature format must be x/y (e.g. 4/4)")
 
+        # anacrusis validation (optional - for pickup measures)
+        anacrusis = metadata.get("anacrusis")
+        if anacrusis is not None:
+            if not isinstance(anacrusis, bool):
+                errors.append("metadata.anacrusis must be a boolean (true/false)")
+
     # ---------- tracks validation ----------
     tracks = json_data.get("tracks")
     if tracks is None or not isinstance(tracks, list):
@@ -280,9 +356,78 @@ def validate(json_data: dict) -> tuple:
             if instrument is None or not isinstance(instrument, str):
                 errors.append(f"Track {track_num} instrument must exist and be a string")
 
+            # Check for voices field (new multivoice support)
+            voices = track.get("voices")
             notes = track.get("notes")
-            if notes is None or not isinstance(notes, list):
-                errors.append(f"Track {track_num} notes must exist and be an array")
+            
+            # Validate voices structure
+            if voices is not None:
+                if not isinstance(voices, list):
+                    errors.append(f"Track {track_num} voices must be an array")
+                elif len(voices) == 0:
+                    errors.append(f"Track {track_num} voices cannot be an empty array")
+                else:
+                    # Validate each voice
+                    for v_idx, voice in enumerate(voices):
+                        voice_num = v_idx + 1
+                        if not isinstance(voice, dict):
+                            errors.append(f"Track {track_num}, voice {voice_num} must be an object")
+                            continue
+                        
+                        # Validate voice name
+                        voice_name = voice.get("name")
+                        if voice_name is None or not isinstance(voice_name, str):
+                            errors.append(f"Track {track_num}, voice {voice_num} name must exist and be a string")
+                        elif len(voice_name) > _VOICE_NAME_MAX_LENGTH:
+                            errors.append(f"Track {track_num}, voice {voice_num} name exceeds {_VOICE_NAME_MAX_LENGTH} characters")
+                        
+                        # Validate voice notes
+                        voice_notes = voice.get("notes")
+                        if voice_notes is None or not isinstance(voice_notes, list):
+                            errors.append(f"Track {track_num}, voice {voice_num} notes must exist and be an array")
+                        elif len(voice_notes) == 0:
+                            errors.append(f"Track {track_num}, voice {voice_num} notes cannot be an empty array")
+                        else:
+                            # Validate each note in voice (reuse existing note validation logic)
+                            for n_idx, note in enumerate(voice_notes):
+                                note_num = n_idx + 1
+                                if not isinstance(note, dict):
+                                    errors.append(f"Track {track_num}, voice {voice_num}, note {note_num} must be an object")
+                                    continue
+                                
+                                # pitch validation (optional if chord is present)
+                                pitch = note.get("pitch")
+                                has_chord = note.get("chord") is not None
+                                if pitch is None and not has_chord:
+                                    errors.append(f"Track {track_num}, voice {voice_num}, note {note_num} pitch must exist (or provide chord)")
+                                elif pitch is not None and not isinstance(pitch, int):
+                                    errors.append(f"Track {track_num}, voice {voice_num}, note {note_num} pitch must be an integer or null (-1 for rest)")
+                                elif pitch is not None and pitch != -1 and (pitch < 21 or pitch > 108):
+                                    errors.append(
+                                        f"Track {track_num}, voice {voice_num}, note {note_num} pitch value {pitch} out of range 21-108"
+                                    )
+                                
+                                # duration validation
+                                duration = note.get("duration")
+                                if duration is None or not isinstance(duration, str):
+                                    errors.append(f"Track {track_num}, voice {voice_num}, note {note_num} duration must exist and be a string")
+                                elif not _is_valid_duration(duration):
+                                    errors.append(
+                                        f"Track {track_num}, voice {voice_num}, note {note_num} duration '{duration}' is not a valid duration"
+                                    )
+                                
+                                # velocity fill and validation
+                                velocity = note.get("velocity")
+                                if velocity is None:
+                                    note["velocity"] = _DEFAULT_VELOCITY
+                                elif not isinstance(velocity, int) or velocity < 0 or velocity > 127:
+                                    errors.append(
+                                        f"Track {track_num}, voice {voice_num}, note {note_num} velocity must be in 0-127 range"
+                                    )
+            
+            # If no voices, validate original notes structure (backward compatibility)
+            elif notes is None or not isinstance(notes, list):
+                errors.append(f"Track {track_num} notes must exist and be an array (or add voices for multivoice support)")
             elif len(notes) == 0:
                 errors.append(f"Track {track_num} notes cannot be an empty array")
             else:
@@ -543,6 +688,27 @@ def validate(json_data: dict) -> tuple:
                                 f"only valid dynamics markings supported: {sorted(_VALID_DYNAMICS)}"
                             )
 
+                    # anacrusis validation (optional - for pickup measures)
+                    anacrusis = note.get("anacrusis")
+                    if anacrusis is not None:
+                        if not isinstance(anacrusis, bool):
+                            errors.append(
+                                f"Track {track_num}, note {note_num} anacrusis must be a boolean (true/false)"
+                            )
+
+                    # ottava validation (optional - for octave transposition)
+                    ottava = note.get("ottava")
+                    if ottava is not None:
+                        if not isinstance(ottava, str):
+                            errors.append(
+                                f"Track {track_num}, note {note_num} ottava must be a string"
+                            )
+                        elif ottava not in ("8va", "8vb", "15ma", "15mb"):
+                            errors.append(
+                                f"Track {track_num}, note {note_num} ottava value '{ottava}' is invalid, "
+                                f"only '8va', '8vb', '15ma', '15mb' supported"
+                            )
+
                     # expression validation (optional)
                     expression = note.get("expression")
                     if expression is not None:
@@ -662,5 +828,23 @@ def validate(json_data: dict) -> tuple:
                     errors.append(f"Track {track_num} volta must be an integer")
                 elif volta < 1 or volta > 4:
                     errors.append(f"Track {track_num} volta value {volta} out of range 1-4")
+
+            # instrument_transpose validation (optional)
+            instrument_transpose = track.get("instrument_transpose")
+            if instrument_transpose is not None:
+                if not isinstance(instrument_transpose, str):
+                    errors.append(f"Track {track_num} instrument_transpose must be a string")
+                elif instrument_transpose not in _VALID_TRANSPOSE_INTERVALS:
+                    errors.append(f"Track {track_num} instrument_transpose value '{instrument_transpose}' is invalid, "
+                                  f"only semitone intervals from -12 to 12 are supported")
+
+            # barline validation (optional)
+            barline = track.get("barline")
+            if barline is not None:
+                if not isinstance(barline, str):
+                    errors.append(f"Track {track_num} barline must be a string")
+                elif barline not in _VALID_BARLINE_STYLES:
+                    errors.append(f"Track {track_num} barline value '{barline}' is invalid, "
+                                  f"only {sorted(_VALID_BARLINE_STYLES)} supported")
 
     return (len(errors) == 0, errors)

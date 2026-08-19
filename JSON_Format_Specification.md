@@ -1125,10 +1125,146 @@ If MuseScore is not found, audio export raises an `OSError` with a message promp
 	}
 	```
 	
-	### 37.6 Use Cases
-	
-	- **Ostinato / Bass lines**: Repeated bass patterns across multiple tracks
-	- **Chord progressions**: Common harmonic sequences repeated throughout
-	- **Scale runs**: Technical passages that appear in multiple sections
-	- **Rhythmic patterns**: Drum or accompaniment patterns reused
-	- **Section repeats**: Entire musical phrases reused in different parts of the piece
+### 37.6 Use Cases
+
+- **Ostinato / Bass lines**: Repeated bass patterns across multiple tracks
+- **Chord progressions**: Common harmonic sequences repeated throughout
+- **Scale runs**: Technical passages that appear in multiple sections
+- **Rhythmic patterns**: Drum or accompaniment patterns reused
+- **Section repeats**: Entire musical phrases reused in different parts of the piece
+
+---
+
+## 38. Multi-Voice Support (多声部支持)
+
+### 38.1 Overview
+
+A single track can carry more than one voice — for example the right/left
+hands of a piano, or the four voices of a SATB choir. Add a `voices` array to
+a track; each element becomes an independent staff (music21 `Part`) rendered
+in the output.
+
+```json
+{
+  "title": "Example",
+  "composer": "Do Muse",
+  "metadata": {
+    "tempo_bpm": 120,
+    "time_signature": "4/4",
+    "key_signature": "C"
+  },
+  "tracks": [
+    {
+      "instrument": "Acoustic Grand Piano",
+      "voices": [
+        {
+          "name": "右手",
+          "notes": [
+            { "pitch": 72, "duration": "quarter" },
+            { "pitch": 74, "duration": "quarter" }
+          ]
+        },
+        {
+          "name": "左手",
+          "notes": [
+            { "pitch": 48, "duration": "half" },
+            { "pitch": 52, "duration": "quarter" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 38.2 Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `voices` | array | No | Voice array. When present, the track's `notes` field is **ignored**. |
+| `voices[].name` | string | **Yes** | Voice name (e.g. `"右手"`, `"Soprano"`). Max 50 characters. |
+| `voices[].notes` | array | **Yes** | Note array for this voice, same format as a regular track's `notes`. |
+| `voices[].instrument_transpose` | string | No | Per-voice transposition interval in semitones (`"-12"`..`"12"`). |
+| `voices[].barline` | string | No | Per-voice final barline style (`"single"`, `"double"`, `"final"`, `"dashed"`, `"invisible"`). |
+
+### 38.3 Clef & Staff Layout Rules
+
+Do Muse assigns clefs and groups staves automatically based on the instrument:
+
+- **Piano (Acoustic Grand Piano / Piano) — Grand Staff (大谱表)**
+  - 2 voices → right hand = Treble clef, left hand = Bass clef, braced together.
+  - 3+ voices → first two follow the same rule; extra voices use Treble clef.
+- **Organ / Harp**
+  - 2+ voices → grouped into a braced grand-staff group (manuals = Treble, pedal/bass = Bass).
+- **Choir (Choir Aahs / Voice Oohs) — Side-by-side staves (并排谱表)**
+  - 4 voices (SATB): Soprano & Alto = Treble clef, Tenor & Bass = Bass clef.
+  - Other voice counts: each voice uses Treble clef (rendered as separate staves).
+- **Other instruments**
+  - Each voice is rendered as its own staff; clef follows the program number
+    (bass instruments → Bass clef, viola → Alto clef, otherwise Treble clef).
+
+### 38.4 Examples
+
+**Piano four hands (四手联弹)** — one piano track, two voices (Primo / Secondo):
+
+```json
+{
+  "title": "Piano Duet (Four Hands)",
+  "composer": "Do Muse",
+  "metadata": { "tempo_bpm": 100, "time_signature": "4/4", "key_signature": "C" },
+  "tracks": [
+    {
+      "instrument": "Acoustic Grand Piano",
+      "voices": [
+        { "name": "Primo",   "notes": [ { "pitch": 72, "duration": "quarter" }, { "pitch": 84, "duration": "half", "fermata": true } ] },
+        { "name": "Secondo", "notes": [ { "chord": [48, 52, 55], "duration": "half" }, { "pitch": 48, "duration": "half", "fermata": true } ] }
+      ]
+    }
+  ]
+}
+```
+
+**SATB choir (混声四部合唱)** — one choir track, four voices:
+
+```json
+{
+  "title": "SATB Choir",
+  "composer": "Do Muse",
+  "metadata": { "tempo_bpm": 90, "time_signature": "4/4", "key_signature": "G" },
+  "tracks": [
+    {
+      "instrument": "Choir Aahs",
+      "voices": [
+        { "name": "Soprano", "notes": [ { "pitch": 67, "duration": "whole" }, { "pitch": 74, "duration": "whole" } ] },
+        { "name": "Alto",    "notes": [ { "pitch": 62, "duration": "whole" }, { "pitch": 66, "duration": "whole" } ] },
+        { "name": "Tenor",   "notes": [ { "pitch": 59, "duration": "whole" }, { "pitch": 62, "duration": "whole" } ] },
+        { "name": "Bass",    "notes": [ { "pitch": 43, "duration": "whole" }, { "pitch": 43, "duration": "whole" } ] }
+      ]
+    }
+  ]
+}
+```
+
+### 38.5 Backward Compatibility
+
+- If a track has **no** `voices` field, it is treated as a single-voice track using its `notes` array (existing behaviour is unchanged).
+- If a track **has** a `voices` field, its `notes` field is ignored.
+
+### 38.6 Combining with Macros
+
+Voices can reference macros just like a regular track's `notes`:
+
+```json
+{
+  "macros": { "bass": [ { "pitch": 48, "duration": "quarter" }, { "pitch": 52, "duration": "quarter" } ] },
+  "tracks": [
+    {
+      "instrument": "Acoustic Grand Piano",
+      "voices": [
+        { "name": "右手", "notes": [ { "ref": "bass" }, { "pitch": 72, "duration": "half" } ] },
+        { "name": "左手", "notes": [ { "ref": "bass" } ] }
+      ]
+    }
+  ]
+}
+```

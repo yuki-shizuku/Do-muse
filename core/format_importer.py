@@ -501,7 +501,7 @@ def _extract_track_repeat_and_volta(part_stream) -> tuple:
                 repeat_begin = True
             elif el.direction == "end":
                 repeat_end = True
-        elif isinstance(el, spanner_mod.Volta):
+        elif isinstance(el, spanner_mod.RepeatBracket):
             volta = el.number
 
     return repeat_begin, repeat_end, volta

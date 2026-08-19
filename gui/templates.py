@@ -124,4 +124,90 @@ TEMPLATES: dict[str, dict] = {
             }
         ]
     },
+    "piano_duet": {
+        "title": "Piano Duet (Four Hands)",
+        "composer": "Do Muse",
+        "metadata": {
+            "tempo_bpm": 100,
+            "time_signature": "4/4",
+            "key_signature": "C"
+        },
+        "tracks": [
+            {
+                "instrument": "Acoustic Grand Piano",
+                "voices": [
+                    {
+                        "name": "Primo",
+                        "notes": [
+                            {"pitch": 72, "duration": "quarter", "velocity": 80},
+                            {"pitch": 76, "duration": "quarter", "velocity": 80},
+                            {"pitch": 79, "duration": "quarter", "velocity": 85},
+                            {"pitch": 84, "duration": "half", "velocity": 90, "fermata": True}
+                        ]
+                    },
+                    {
+                        "name": "Secondo",
+                        "notes": [
+                            {"chord": [48, 52, 55], "duration": "half", "velocity": 75},
+                            {"chord": [50, 53, 57], "duration": "half", "velocity": 75},
+                            {"chord": [45, 49, 52], "duration": "half", "velocity": 75},
+                            {"pitch": 48, "duration": "half", "velocity": 80, "fermata": True}
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "satb_choir": {
+        "title": "SATB Choir",
+        "composer": "Do Muse",
+        "metadata": {
+            "tempo_bpm": 90,
+            "time_signature": "4/4",
+            "key_signature": "G"
+        },
+        "tracks": [
+            {
+                "instrument": "Choir Aahs",
+                "voices": [
+                    {
+                        "name": "Soprano",
+                        "notes": [
+                            {"pitch": 67, "duration": "whole", "velocity": 75, "lyric": "A"},
+                            {"pitch": 72, "duration": "whole", "velocity": 75, "lyric": "men"},
+                            {"pitch": 74, "duration": "whole", "velocity": 78, "lyric": "a"},
+                            {"pitch": 67, "duration": "whole", "velocity": 75, "lyric": "men"}
+                        ]
+                    },
+                    {
+                        "name": "Alto",
+                        "notes": [
+                            {"pitch": 62, "duration": "whole", "velocity": 70, "lyric": "A"},
+                            {"pitch": 64, "duration": "whole", "velocity": 70, "lyric": "men"},
+                            {"pitch": 66, "duration": "whole", "velocity": 72, "lyric": "a"},
+                            {"pitch": 62, "duration": "whole", "velocity": 70, "lyric": "men"}
+                        ]
+                    },
+                    {
+                        "name": "Tenor",
+                        "notes": [
+                            {"pitch": 59, "duration": "whole", "velocity": 70, "lyric": "A"},
+                            {"pitch": 60, "duration": "whole", "velocity": 70, "lyric": "men"},
+                            {"pitch": 62, "duration": "whole", "velocity": 72, "lyric": "a"},
+                            {"pitch": 59, "duration": "whole", "velocity": 70, "lyric": "men"}
+                        ]
+                    },
+                    {
+                        "name": "Bass",
+                        "notes": [
+                            {"pitch": 43, "duration": "whole", "velocity": 70, "lyric": "A"},
+                            {"pitch": 48, "duration": "whole", "velocity": 70, "lyric": "men"},
+                            {"pitch": 43, "duration": "whole", "velocity": 72, "lyric": "a"},
+                            {"pitch": 43, "duration": "whole", "velocity": 70, "lyric": "men"}
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
 }
