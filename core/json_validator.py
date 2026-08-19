@@ -497,22 +497,22 @@ def validate(json_data: dict) -> tuple:
                                 f"only 'D.C.', 'D.S.', 'Coda', 'Fine' supported"
                             )
 
-        # Track-level field validation
-        repeat_begin = track.get("repeat_begin")
-        if repeat_begin is not None:
-            if not isinstance(repeat_begin, bool):
-                errors.append(f"Track {track_num} repeat_begin must be a boolean")
+            # Track-level field validation
+            repeat_begin = track.get("repeat_begin")
+            if repeat_begin is not None:
+                if not isinstance(repeat_begin, bool):
+                    errors.append(f"Track {track_num} repeat_begin must be a boolean")
 
-        repeat_end = track.get("repeat_end")
-        if repeat_end is not None:
-            if not isinstance(repeat_end, bool):
-                errors.append(f"Track {track_num} repeat_end must be a boolean")
+            repeat_end = track.get("repeat_end")
+            if repeat_end is not None:
+                if not isinstance(repeat_end, bool):
+                    errors.append(f"Track {track_num} repeat_end must be a boolean")
 
-        volta = track.get("volta")
-        if volta is not None:
-            if not isinstance(volta, int):
-                errors.append(f"Track {track_num} volta must be an integer")
-            elif volta < 1 or volta > 4:
-                errors.append(f"Track {track_num} volta value {volta} out of range 1-4")
+            volta = track.get("volta")
+            if volta is not None:
+                if not isinstance(volta, int):
+                    errors.append(f"Track {track_num} volta must be an integer")
+                elif volta < 1 or volta > 4:
+                    errors.append(f"Track {track_num} volta value {volta} out of range 1-4")
 
     return (len(errors) == 0, errors)

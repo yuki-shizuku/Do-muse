@@ -37,42 +37,75 @@ _DURATION_TO_FLOAT: dict[str, float] = {
     "64th": 0.0625,
 }
 
-# Dynamics marking -> music21 Dynamic object mapping
-_DYNAMICS_MAP = {
-    "pppp": dynamics.Dynamic("pppp"),
-    "ppp": dynamics.Dynamic("ppp"),
-    "pp": dynamics.Dynamic("pp"),
-    "p": dynamics.Dynamic("p"),
-    "mp": dynamics.Dynamic("mp"),
-    "mf": dynamics.Dynamic("mf"),
-    "f": dynamics.Dynamic("f"),
-    "ff": dynamics.Dynamic("ff"),
-    "fff": dynamics.Dynamic("fff"),
-    "ffff": dynamics.Dynamic("ffff"),
-    "sfz": dynamics.Dynamic("sfz"),
-    "sf": dynamics.Dynamic("sf"),
-    "fz": dynamics.Dynamic("fz"),
-    "rfz": dynamics.Dynamic("rfz"),
-    "sffz": dynamics.Dynamic("sffz"),
-    "fp": dynamics.Dynamic("fp"),
-    "sfp": dynamics.Dynamic("sfp"),
-    "crescendo": dynamics.Dynamic("crescendo"),
-    "diminuendo": dynamics.Dynamic("diminuendo"),
-    "calando": dynamics.Dynamic("calando"),
-    "morendo": dynamics.Dynamic("morendo"),
-    "smorzando": dynamics.Dynamic("smorzando"),
-    "rinforzando": dynamics.Dynamic("rinforzando"),
+# Dynamics marking -> music21 Dynamic class mapping (factory, avoids shared mutable objects)
+_DYNAMICS_CLASS_MAP: dict[str, str] = {
+    "pppp": "pppp",
+    "ppp": "ppp",
+    "pp": "pp",
+    "p": "p",
+    "mp": "mp",
+    "mf": "mf",
+    "f": "f",
+    "ff": "ff",
+    "fff": "fff",
+    "ffff": "ffff",
+    "sfz": "sfz",
+    "sf": "sf",
+    "fz": "fz",
+    "rfz": "rfz",
+    "sffz": "sffz",
+    "fp": "fp",
+    "sfp": "sfp",
+    "crescendo": "crescendo",
+    "diminuendo": "diminuendo",
+    "calando": "calando",
+    "morendo": "morendo",
+    "smorzando": "smorzando",
+    "rinforzando": "rinforzando",
 }
 
-# Articulation -> music21 Articulation object mapping
-_ARTICULATION_MAP = {
-    "staccato": articulations.Staccato(),
-    "staccatissimo": articulations.Staccatissimo(),
-    "accent": articulations.Accent(),
-    "tenuto": articulations.Tenuto(),
-    "marcato": articulations.StrongAccent(),
-    "sforzando": articulations.StrongAccent(),
+
+def _create_dynamics(dynamics_str: str) -> Optional[dynamics.Dynamic]:
+    """
+    创建一个新的 music21 Dynamic 对象，避免共享可变状态。
+
+    Args:
+        dynamics_str: 力度标记字符串。
+
+    Returns:
+        Dynamic 对象，若标记无效则返回 None。
+    """
+    dyn_value = _DYNAMICS_CLASS_MAP.get(dynamics_str)
+    if dyn_value is not None:
+        return dynamics.Dynamic(dyn_value)
+    return None
+
+
+# Articulation -> music21 Articulation class mapping (factory)
+_ARTICULATION_FACTORY: dict[str, type] = {
+    "staccato": articulations.Staccato,
+    "staccatissimo": articulations.Staccatissimo,
+    "accent": articulations.Accent,
+    "tenuto": articulations.Tenuto,
+    "marcato": articulations.StrongAccent,
+    "sforzando": articulations.StrongAccent,
 }
+
+
+def _create_articulation(articulation_str: str) -> Optional[articulations.Articulation]:
+    """
+    创建一个新的 music21 Articulation 对象，避免共享可变状态。
+
+    Args:
+        articulation_str: 演奏法标记字符串。
+
+    Returns:
+        Articulation 对象，若标记无效则返回 None。
+    """
+    art_class = _ARTICULATION_FACTORY.get(articulation_str)
+    if art_class is not None:
+        return art_class()
+    return None
 
 
 @dataclass
@@ -92,6 +125,7 @@ class _BuildContext:
         hairpin_type: "crescendo" or "diminuendo".
         slur_start: The note where a slur started.
         pending_slur: Whether a slur is currently open.
+        slur_notes: List of intermediate notes in a multi-note slur.
     """
     offset: float = 0.0
     current_tempo: float = 120.0
@@ -100,6 +134,7 @@ class _BuildContext:
     hairpin_type: Optional[str] = None
     slur_start: Optional[note.GeneralNote] = None
     pending_slur: bool = False
+    slur_notes: list = field(default_factory=list)
 
 
 def parse_duration(duration_str: str) -> float:
@@ -171,25 +206,39 @@ def _remove_doctype(xml_content: str) -> str:
     )
 
 
-def _get_clef_for_program(program_number: int) -> tuple:
+def _get_clef_for_program(program_number: int) -> str:
     """
-    Return the appropriate clef (sign, line) based on MIDI program number.
+    Return the appropriate clef name based on MIDI program number.
+
+    Clef types:
+      - "treble": G clef (line 2) — most instruments
+      - "bass": F clef (line 4) — low instruments
+      - "alto": C clef (line 3) — viola, etc.
 
     Args:
         program_number: MIDI program number (0-127).
 
     Returns:
-        tuple: (sign, line), e.g. ('G', 2) for treble clef.
+        str: Clef name, one of "treble", "bass", "alto".
     """
-    # Bass instruments use bass clef
-    if program_number in (32, 33, 34, 35, 36, 37, 38, 39, 43):
-        return ('F', 4)
-    if program_number in (42, 70):
-        return ('F', 4)
-    if program_number in (58,):
-        return ('F', 4)
-    # Default to treble clef
-    return ('G', 2)
+    # Bass instruments (low register) — use bass clef
+    # 32-39: Bass guitars, synth bass
+    # 40-43: Violin family low register (Cello=42, Contrabass=43)
+    # 47: Timpani
+    # 56-59: Brass low (Trombone=57, Tuba=58, French Horn=60)
+    # 70: Bassoon
+    _BASS_PROGRAMS = {32, 33, 34, 35, 36, 37, 38, 39, 40, 42, 43, 47, 57, 58, 60, 70}
+    if program_number in _BASS_PROGRAMS:
+        return "bass"
+
+    # Alto clef instruments — C clef (line 3)
+    # 41: Viola
+    _ALTO_PROGRAMS = {41}
+    if program_number in _ALTO_PROGRAMS:
+        return "alto"
+
+    # Default: treble clef
+    return "treble"
 
 
 def _get_tuplet_normal(actual: int) -> int:
@@ -226,7 +275,7 @@ def _apply_articulations(n_obj, articulation_str: str) -> None:
         n_obj: music21 Note object.
         articulation_str: Articulation type string.
     """
-    art = _ARTICULATION_MAP.get(articulation_str)
+    art = _create_articulation(articulation_str)
     if art is not None:
         n_obj.articulations.append(art)
 
@@ -239,7 +288,7 @@ def _apply_dynamics(n_obj, dynamics_str: str) -> None:
         n_obj: music21 Note object.
         dynamics_str: Dynamics marking string.
     """
-    dyn = _DYNAMICS_MAP.get(dynamics_str)
+    dyn = _create_dynamics(dynamics_str)
     if dyn is not None:
         n_obj.expressions.append(dyn)
 
@@ -379,7 +428,7 @@ def _process_text(part: stream.Part, ctx: _BuildContext, n_data: dict) -> None:
 
 def _process_pedal(part: stream.Part, ctx: _BuildContext, n_data: dict) -> None:
     """
-    Insert pedal markings at the current offset.
+    Insert pedal markings at the current offset using music21 native PedalMark.
 
     Args:
         part: music21 Part being built.
@@ -388,18 +437,10 @@ def _process_pedal(part: stream.Part, ctx: _BuildContext, n_data: dict) -> None:
     """
     pedal = n_data.get("pedal")
     if pedal is not None:
-        if pedal == "start":
-            te_ped = expressions.TextExpression("Ped.")
-            te_ped.offset = ctx.offset
-            part.insert(te_ped)
-        elif pedal == "continue":
-            te_ped = expressions.TextExpression("Ped.")
-            te_ped.offset = ctx.offset
-            part.insert(te_ped)
-        elif pedal == "stop":
-            te_ped = expressions.TextExpression("Ped. stop")
-            te_ped.offset = ctx.offset
-            part.insert(te_ped)
+        ped_mark = expressions.PedalMark()
+        ped_mark.pedalType = pedal  # "start", "continue", or "stop"
+        ped_mark.offset = ctx.offset
+        part.insert(ped_mark)
 
 
 def _process_chord(n_obj, n_data: dict, vel: int) -> object:
@@ -508,7 +549,7 @@ def _process_glissando(part: stream.Part, ctx: _BuildContext, n_obj, n_data: dic
 
 def _process_slur(part: stream.Part, ctx: _BuildContext, n_obj, n_data: dict) -> None:
     """
-    Handle slur start/stop by creating a music21 Slur spanner.
+    Handle slur start/continue/stop by creating a music21 Slur spanner.
 
     Args:
         part: music21 Part being built.
@@ -522,11 +563,16 @@ def _process_slur(part: stream.Part, ctx: _BuildContext, n_obj, n_data: dict) ->
 
     if slur == "start":
         ctx.slur_start = n_obj
+        ctx.slur_notes = [n_obj]
         ctx.pending_slur = True
+    elif slur == "continue" and ctx.pending_slur and ctx.slur_start is not None:
+        ctx.slur_notes.append(n_obj)
     elif slur == "stop" and ctx.pending_slur and ctx.slur_start is not None:
-        slur_obj = spanner21.Slur([ctx.slur_start, n_obj])
+        ctx.slur_notes.append(n_obj)
+        slur_obj = spanner21.Slur(ctx.slur_notes)
         part.insert(slur_obj)
         ctx.slur_start = None
+        ctx.slur_notes = []
         ctx.pending_slur = False
 
 
@@ -590,6 +636,10 @@ def _process_tempo_gradual(part: stream.Part, ctx: _BuildContext, n_data: dict) 
     """
     Insert intermediate metronome marks for a gradual tempo change.
 
+    Uses linear interpolation between current tempo and target tempo.
+    Intermediate marks are placed at evenly spaced offsets within the
+    transition duration, anchored to the current note's offset.
+
     Args:
         part: music21 Part being built.
         ctx: Build context.
@@ -601,15 +651,20 @@ def _process_tempo_gradual(part: stream.Part, ctx: _BuildContext, n_data: dict) 
         tg_duration = tempo_gradual.get("duration_beats", 4.0)
         current_tempo = ctx.current_tempo
         if tg_target != current_tempo and tg_duration > 0:
+            start_offset = ctx.offset
+            end_offset = ctx.offset + tg_duration
             num_steps = max(2, min(10, int(tg_duration / 0.5)))
             for i in range(1, num_steps + 1):
                 t = i / num_steps
                 intermediate_tempo = current_tempo + (tg_target - current_tempo) * t
+                # Clamp offset to not exceed end_offset
+                intermediate_offset = start_offset + (end_offset - start_offset) * t
                 tm = tempo.MetronomeMark(number=int(round(intermediate_tempo)))
-                tm.offset = ctx.offset + tg_duration * t
+                tm.offset = intermediate_offset
                 part.insert(tm)
+            # Final tempo mark at the end of the transition
             tm_final = tempo.MetronomeMark(number=tg_target)
-            tm_final.offset = ctx.offset + tg_duration
+            tm_final.offset = end_offset
             part.insert(tm_final)
             ctx.current_tempo = tg_target
 
@@ -769,16 +824,17 @@ def _build_score(json_data: dict) -> stream.Score:
         bpm = meta.get("tempo_bpm", 120)
         part.insert(0, tempo.MetronomeMark(number=bpm))
 
-        # Set clef
-        clef_sign, clef_line = _get_clef_for_program(program_number)
-        part.insert(0, clef.TrebleClef() if clef_sign == 'G' else clef.BassClef())
+        # Set clef based on instrument
+        clef_name = _get_clef_for_program(program_number)
+        if clef_name == "bass":
+            part.insert(0, clef.BassClef())
+        elif clef_name == "alto":
+            part.insert(0, clef.AltoClef())
+        else:
+            part.insert(0, clef.TrebleClef())
 
-        # Volta (1st/2nd ending) bracket
-        volta = track.get("volta")
-        if volta is not None and volta:
-            from music21 import spanner as spanner_mod
-            volta_spanner = spanner21.Volta("volta", number=volta)
-
+        # Volta (1st/2nd ending) bracket — store for later insertion
+        volta_num = track.get("volta")
         # Build context for this track
         ctx = _BuildContext(offset=0.0, current_tempo=float(bpm))
 
@@ -862,16 +918,38 @@ def _build_score(json_data: dict) -> stream.Score:
             part.insert(n_obj)
             ctx.offset += dur_float_adjusted
 
-        # Track-level repeat markings
+        # Convert flat stream to measure-based stream for repeat/volta support
+        from music21 import bar
         repeat_begin = track.get("repeat_begin")
-        if repeat_begin is not None and repeat_begin:
-            from music21 import bar
-            part.insert(0, bar.Repeat(direction="start"))
-
         repeat_end = track.get("repeat_end")
-        if repeat_end is not None and repeat_end:
-            from music21 import bar
-            part.insert(ctx.offset, bar.Repeat(direction="end"))
+
+        has_repeat = (repeat_begin is not None and repeat_begin) or \
+                     (repeat_end is not None and repeat_end)
+
+        if has_repeat or volta_num is not None:
+            # makeMeasures converts the flat stream into measures,
+            # enabling proper repeat barline and volta bracket placement
+            part.makeMeasures(inPlace=True)
+
+            if repeat_begin is not None and repeat_begin:
+                # Insert start repeat barline at the beginning of the first measure
+                first_measure = part.getElementsByClass(stream.Measure).first()
+                if first_measure is not None:
+                    first_measure.leftBarline = bar.Repeat(direction="start")
+
+            if repeat_end is not None and repeat_end:
+                # Insert end repeat barline at the end of the last measure
+                last_measure = part.getElementsByClass(stream.Measure).last()
+                if last_measure is not None:
+                    last_measure.rightBarline = bar.Repeat(direction="end")
+
+            if volta_num is not None and volta_num:
+                # Apply volta bracket to the first measure
+                first_measure = part.getElementsByClass(stream.Measure).first()
+                if first_measure is not None:
+                    volta_spanner = spanner21.Volta("volta", number=volta_num)
+                    volta_spanner.addSpannedElements(first_measure)
+                    part.insert(0, volta_spanner)
 
         score.append(part)
 

@@ -8,7 +8,6 @@ recent files, score preview, and i18n (zh/en).
 import json
 import logging
 import os
-import tempfile
 import platform
 import subprocess
 from PyQt6.QtWidgets import (
@@ -17,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMenuBar, QMessageBox, QFileDialog,
     QStatusBar, QProgressBar, QLabel
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
 from core import json_validator
@@ -25,188 +24,10 @@ from core.i18n import LanguageManager
 from core.config_manager import ConfigManager
 from gui.log_handler import LogHandler
 from gui.json_highlighter import JsonHighlighter
+from gui.workers import ExportWorker, PreviewWorker
+from gui.templates import TEMPLATES
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# JSON templates
-# ---------------------------------------------------------------------------
-
-_TEMPLATES: dict[str, dict] = {
-    "blank": {
-        "title": "Untitled",
-        "composer": "Unknown",
-        "metadata": {
-            "tempo_bpm": 120,
-            "time_signature": "4/4",
-            "key_signature": "C"
-        },
-        "tracks": [
-            {
-                "instrument": "Acoustic Grand Piano",
-                "notes": [
-                    {"pitch": 60, "duration": "quarter", "velocity": 80},
-                    {"pitch": -1, "duration": "quarter", "velocity": 0}
-                ]
-            }
-        ]
-    },
-    "piano": {
-        "title": "Piano Solo",
-        "composer": "Do Muse",
-        "metadata": {
-            "tempo_bpm": 120,
-            "time_signature": "4/4",
-            "key_signature": "C"
-        },
-        "tracks": [
-            {
-                "instrument": "Acoustic Grand Piano",
-                "notes": [
-                    {"pitch": 60, "duration": "quarter", "velocity": 80},
-                    {"pitch": 64, "duration": "quarter", "velocity": 80},
-                    {"pitch": 67, "duration": "quarter", "velocity": 80},
-                    {"pitch": 72, "duration": "half", "velocity": 85}
-                ]
-            }
-        ]
-    },
-    "duo": {
-        "title": "Duo",
-        "composer": "Do Muse",
-        "metadata": {
-            "tempo_bpm": 110,
-            "time_signature": "4/4",
-            "key_signature": "G"
-        },
-        "tracks": [
-            {
-                "instrument": "Violin",
-                "notes": [
-                    {"pitch": 67, "duration": "half", "velocity": 75},
-                    {"pitch": 69, "duration": "half", "velocity": 75}
-                ]
-            },
-            {
-                "instrument": "Cello",
-                "notes": [
-                    {"pitch": 48, "duration": "whole", "velocity": 70}
-                ]
-            }
-        ]
-    },
-    "scale": {
-        "title": "C Major Scale",
-        "composer": "Do Muse",
-        "metadata": {
-            "tempo_bpm": 100,
-            "time_signature": "4/4",
-            "key_signature": "C"
-        },
-        "tracks": [
-            {
-                "instrument": "Acoustic Grand Piano",
-                "notes": [
-                    {"pitch": 60, "duration": "quarter", "velocity": 80},
-                    {"pitch": 62, "duration": "quarter", "velocity": 80},
-                    {"pitch": 64, "duration": "quarter", "velocity": 80},
-                    {"pitch": 65, "duration": "quarter", "velocity": 80},
-                    {"pitch": 67, "duration": "quarter", "velocity": 85},
-                    {"pitch": 69, "duration": "quarter", "velocity": 85},
-                    {"pitch": 71, "duration": "quarter", "velocity": 85},
-                    {"pitch": 72, "duration": "half", "velocity": 90}
-                ]
-            }
-        ]
-    },
-}
-
-
-# ---------------------------------------------------------------------------
-# Worker threads for async operations
-# ---------------------------------------------------------------------------
-
-class _ExportWorker(QThread):
-    """
-    Worker thread for exporting scores without blocking the UI.
-
-    Emits finished_signal with (success, error_message, output_path).
-    """
-
-    finished_signal = pyqtSignal(bool, str, str)
-
-    def __init__(self, json_data: dict, output_path: str, fmt: str):
-        """
-        Initialize the export worker.
-
-        Args:
-            json_data: Validated score JSON dict.
-            output_path: Output file path.
-            fmt: Format identifier ("mxl", "midi", "xml", "ly").
-        """
-        super().__init__()
-        self._json_data = json_data
-        self._output_path = output_path
-        self._fmt = fmt
-
-    def run(self):
-        """
-        Execute the export in a background thread.
-        """
-        try:
-            from core.music_exporter import export_score
-            export_score(self._json_data, self._output_path, self._fmt)
-            self.finished_signal.emit(True, "", self._output_path)
-        except Exception as e:
-            self.finished_signal.emit(False, str(e), self._output_path)
-
-
-class _PreviewWorker(QThread):
-    """
-    Worker thread for generating a score preview image.
-
-    Emits finished_signal with (success, image_path, error_message).
-    """
-
-    finished_signal = pyqtSignal(bool, str, str)
-
-    def __init__(self, json_data: dict):
-        """
-        Initialize the preview worker.
-
-        Args:
-            json_data: Validated score JSON dict.
-        """
-        super().__init__()
-        self._json_data = json_data
-
-    def run(self):
-        """
-        Generate a PNG preview of the score using music21's lilypond backend.
-        """
-        tmp_path = None
-        try:
-            from core.music_exporter import _build_score
-            score = _build_score(self._json_data)
-
-            tmp_fd, tmp_path = tempfile.mkstemp(suffix='.png')
-            os.close(tmp_fd)
-
-            # Try to write as PNG using music21's lilypond or musicxml converter
-            try:
-                score.write('lilypond', fp=tmp_path)
-            except Exception:
-                # Fallback: try musicxml -> png via musescore if available
-                try:
-                    score.write('musicxml', fp=tmp_path.replace('.png', '.xml'))
-                    tmp_path = tmp_path.replace('.png', '.xml')
-                except Exception as e:
-                    raise RuntimeError(f"Cannot generate preview: {e}")
-
-            self.finished_signal.emit(True, tmp_path, "")
-        except Exception as e:
-            self.finished_signal.emit(False, "", str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +66,9 @@ class MainWindow(QMainWindow):
         self.config_manager = ConfigManager()
         self._current_file_path: str = ""
         self._validation_status: str = "none"
-        self._export_worker: _ExportWorker = None
-        self._preview_worker: _PreviewWorker = None
+        self._export_worker: ExportWorker = None
+        self._preview_worker: PreviewWorker = None
+        self._current_theme: str = "light"
 
         self._setup_menu_bar()
         self._setup_central_widget()
@@ -256,6 +78,11 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._enable_drag_drop()
         self._update_status_bar()
+
+        # Apply saved theme
+        config = self.config_manager.load_config()
+        self._current_theme = config.get("theme", "light")
+        self._apply_theme(self._current_theme)
 
         logger.info("Main window initialized")
 
@@ -359,6 +186,17 @@ class MainWindow(QMainWindow):
         self.action_preview = QAction(LanguageManager.tr("menu_preview"), self)
         self.action_preview.triggered.connect(self.on_preview_score)
         self._view_menu.addAction(self.action_preview)
+
+        self._view_menu.addSeparator()
+
+        self._theme_menu = self._view_menu.addMenu(LanguageManager.tr("menu_theme"))
+        self.action_theme_light = QAction(LanguageManager.tr("menu_theme_light"), self)
+        self.action_theme_light.triggered.connect(lambda: self._switch_theme("light"))
+        self._theme_menu.addAction(self.action_theme_light)
+
+        self.action_theme_dark = QAction(LanguageManager.tr("menu_theme_dark"), self)
+        self.action_theme_dark.triggered.connect(lambda: self._switch_theme("dark"))
+        self._theme_menu.addAction(self.action_theme_dark)
 
         # ── Language menu ──
         self._lang_menu = menu_bar.addMenu(LanguageManager.tr("menu_language"))
@@ -593,6 +431,39 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
         logger.info(f"Language switched to {lang}")
 
+    def _switch_theme(self, theme: str):
+        """
+        切换 UI 主题（浅色/暗色）。
+
+        Args:
+            theme: 主题名称，"light" 或 "dark"。
+        """
+        self._apply_theme(theme)
+
+        # Save theme preference to config
+        config = self.config_manager.load_config()
+        config["theme"] = theme
+        self.config_manager.save_config(config)
+        logger.info(f"Theme switched to {theme}")
+
+    def _apply_theme(self, theme: str):
+        """
+        应用指定的主题样式表。
+
+        Args:
+            theme: 主题名称，"light" 或 "dark"。
+        """
+        style_file = "style.qss" if theme == "light" else "style_dark.qss"
+        style_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "resources",
+            style_file,
+        )
+        app = QApplication.instance()
+        if app and os.path.exists(style_path):
+            with open(style_path, "r", encoding="utf-8") as f:
+                app.setStyleSheet(f.read())
+
     def _retranslate_ui(self):
         """Update all UI text elements to match the current language."""
         self.setWindowTitle(LanguageManager.tr("window_title"))
@@ -633,6 +504,9 @@ class MainWindow(QMainWindow):
         # View menu
         self._view_menu.setTitle(LanguageManager.tr("menu_view"))
         self.action_preview.setText(LanguageManager.tr("menu_preview"))
+        self._theme_menu.setTitle(LanguageManager.tr("menu_theme"))
+        self.action_theme_light.setText(LanguageManager.tr("menu_theme_light"))
+        self.action_theme_dark.setText(LanguageManager.tr("menu_theme_dark"))
 
         # Language menu
         self._lang_menu.setTitle(LanguageManager.tr("menu_language"))
@@ -816,7 +690,7 @@ class MainWindow(QMainWindow):
         Args:
             template_key: Template key, one of "blank", "piano", "duo", "scale".
         """
-        template = _TEMPLATES.get(template_key)
+        template = TEMPLATES.get(template_key)
         if template is None:
             logger.warning(f"Unknown template: {template_key}")
             return
@@ -943,9 +817,9 @@ class MainWindow(QMainWindow):
         # Determine file extension and filter
         format_config = {
             "mxl":  {"ext": ".mxl",  "filter_key": "fd_mxl_filter", "dialog_title_key": "fd_export_mxl"},
-            "midi": {"ext": ".mid",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
-            "xml":  {"ext": ".xml",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
-            "ly":   {"ext": ".ly",   "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_mxl"},
+            "midi": {"ext": ".mid",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_midi"},
+            "xml":  {"ext": ".xml",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_xml"},
+            "ly":   {"ext": ".ly",   "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_ly"},
         }
         cfg = format_config.get(fmt, format_config["mxl"])
 
@@ -961,7 +835,7 @@ class MainWindow(QMainWindow):
 
         # Run export in a background thread
         self._show_progress(LanguageManager.tr("progress_exporting"))
-        self._export_worker = _ExportWorker(json_data, file_path, fmt)
+        self._export_worker = ExportWorker(json_data, file_path, fmt)
         self._export_worker.finished_signal.connect(self._on_export_finished)
         self._export_worker.start()
 
@@ -1027,7 +901,7 @@ class MainWindow(QMainWindow):
             return
 
         self._show_progress(LanguageManager.tr("progress_previewing"))
-        self._preview_worker = _PreviewWorker(json_data)
+        self._preview_worker = PreviewWorker(json_data)
         self._preview_worker.finished_signal.connect(self._on_preview_finished)
         self._preview_worker.start()
 

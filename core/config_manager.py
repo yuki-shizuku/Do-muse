@@ -40,6 +40,7 @@ class ConfigManager:
             "auto_open": "false",
             "output_format": "mxl",
             "language": "zh",
+            "theme": "light",
             "import_recent_dir": "",
             "recent_files": [],
         }
@@ -97,6 +98,7 @@ class ConfigManager:
             "auto_open": config_dict.get("auto_open", "false"),
             "output_format": config_dict.get("output_format", "mxl"),
             "language": config_dict.get("language", "zh"),
+            "theme": config_dict.get("theme", "light"),
             "import_recent_dir": config_dict.get("import_recent_dir", ""),
             "recent_files": recent_files_str,
         }

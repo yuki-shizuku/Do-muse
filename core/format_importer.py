@@ -201,6 +201,64 @@ def _extract_arpeggio(n_obj) -> Optional[bool]:
     return None
 
 
+def _extract_tremolo(n_obj) -> Optional[dict]:
+    """
+    从 music21 音符的表达式中提取震音标记。
+
+    Args:
+        n_obj: music21 Note 或 Chord 对象。
+
+    Returns:
+        Optional[dict]: 震音字典（含 duration 键），若未找到则返回 None。
+    """
+    from music21 import expressions as expr
+    for e in n_obj.expressions:
+        if isinstance(e, expr.Tremolo):
+            trem_type = getattr(e, 'tremoloDuration', None)
+            if trem_type is not None:
+                return {"duration": _duration_to_str(trem_type)}
+            return {"duration": "eighth"}
+    return None
+
+
+def _extract_text_expression(n_obj) -> Optional[str]:
+    """
+    从 music21 音符的表达式中提取文本标注。
+
+    Args:
+        n_obj: music21 Note 或 Chord 对象。
+
+    Returns:
+        Optional[str]: 文本内容，若未找到则返回 None。
+    """
+    from music21 import expressions as expr
+    for e in n_obj.expressions:
+        if isinstance(e, expr.TextExpression):
+            text = str(e.content).strip() if hasattr(e, 'content') else str(e).strip()
+            if text:
+                return text
+    return None
+
+
+def _extract_pedal(n_obj) -> Optional[str]:
+    """
+    从 music21 音符的表达式中提取踏板标记。
+
+    Args:
+        n_obj: music21 Note 或 Chord 对象。
+
+    Returns:
+        Optional[str]: 踏板类型（"start"/"continue"/"stop"），若未找到则返回 None。
+    """
+    from music21 import expressions as expr
+    for e in n_obj.expressions:
+        if isinstance(e, expr.PedalMark):
+            pedal_type = getattr(e, 'pedalType', None)
+            if pedal_type in ("start", "continue", "stop"):
+                return pedal_type
+    return None
+
+
 def _build_note_from_music21(n_obj) -> dict:
     """
     Convert a music21 note/rest to a Do Muse JSON note dict.
@@ -272,6 +330,21 @@ def _build_note_from_music21(n_obj) -> dict:
     if arpeggio:
         note_dict["arpeggio"] = True
 
+    # Tremolo
+    tremolo = _extract_tremolo(n_obj)
+    if tremolo:
+        note_dict["tremolo"] = tremolo
+
+    # Text annotation
+    text = _extract_text_expression(n_obj)
+    if text:
+        note_dict["text"] = text
+
+    # Pedal
+    pedal = _extract_pedal(n_obj)
+    if pedal:
+        note_dict["pedal"] = pedal
+
     return note_dict
 
 
@@ -314,10 +387,16 @@ def _get_part_metadata(part_stream) -> tuple:
         break
 
     for el in part_stream.flat.getElementsByClass(key.Key):
-        key_sig = el.sharps  # numeric representation
-        # Convert to string name
+        # Convert key to Do Muse format (e.g. "C" not "C major", "a" not "a minor")
         try:
-            key_sig = str(el)
+            key_str = str(el)
+            # Strip " major" / " minor" suffix
+            if key_str.endswith(" major"):
+                key_sig = key_str[:-6].strip()
+            elif key_str.endswith(" minor"):
+                key_sig = key_str[:-6].strip().lower()
+            else:
+                key_sig = key_str
         except Exception:
             key_sig = None
         break
@@ -398,6 +477,36 @@ def import_from_midi(file_path: str) -> dict:
     return _convert_score_to_json(score)
 
 
+def _extract_track_repeat_and_volta(part_stream) -> tuple:
+    """
+    从 music21 Part 中提取重复标记和 volta 信息。
+
+    Args:
+        part_stream: music21 Part 对象。
+
+    Returns:
+        tuple: (repeat_begin: bool, repeat_end: bool, volta: Optional[int])。
+    """
+    from music21 import bar as bar_mod
+    from music21 import spanner as spanner_mod
+
+    repeat_begin = False
+    repeat_end = False
+    volta = None
+
+    flat = part_stream.flat
+    for el in flat:
+        if isinstance(el, bar_mod.Repeat):
+            if el.direction == "start":
+                repeat_begin = True
+            elif el.direction == "end":
+                repeat_end = True
+        elif isinstance(el, spanner_mod.Volta):
+            volta = el.number
+
+    return repeat_begin, repeat_end, volta
+
+
 def _convert_score_to_json(score: stream.Score) -> dict:
     """
     Convert a music21 Score object to a Do Muse JSON dict.
@@ -438,18 +547,48 @@ def _convert_score_to_json(score: stream.Score) -> dict:
         if key_sig and "key_signature" not in json_data["metadata"]:
             json_data["metadata"]["key_signature"] = key_sig
 
+        # Extract repeat/volta markings
+        repeat_begin, repeat_end, volta = _extract_track_repeat_and_volta(part_stream)
+
         # Build notes array
         notes = []
         note_objs = _get_notes_in_order(part_stream)
 
+        # Track slur spanners for mapping back to notes
+        from music21 import spanner as spanner_mod
+        slur_map = {}  # id(note_obj) -> "start"/"continue"/"stop"
+        for sp in part_stream.flat.getElementsByClass(spanner_mod.Slur):
+            spanned = list(sp.getSpannedElements())
+            if not spanned:
+                continue
+            for i, n in enumerate(spanned):
+                if i == 0:
+                    slur_map[id(n)] = "start"
+                elif i == len(spanned) - 1:
+                    slur_map[id(n)] = "stop"
+                else:
+                    slur_map[id(n)] = "continue"
+
         for offset, n_obj in note_objs:
             note_dict = _build_note_from_music21(n_obj)
+            # Add slur info
+            slur_val = slur_map.get(id(n_obj))
+            if slur_val:
+                note_dict["slur"] = slur_val
             notes.append(note_dict)
 
         track = {
             "instrument": instrument_name,
             "notes": notes,
         }
+        # Add track-level markings
+        if repeat_begin:
+            track["repeat_begin"] = True
+        if repeat_end:
+            track["repeat_end"] = True
+        if volta is not None:
+            track["volta"] = volta
+
         json_data["tracks"].append(track)
 
     return json_data

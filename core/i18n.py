@@ -109,6 +109,9 @@ class LanguageManager:
         "fd_load_json": {"zh": "加载 JSON 文件", "en": "Load JSON File"},
         "fd_save_json": {"zh": "保存 JSON 文件", "en": "Save JSON File"},
         "fd_export_mxl": {"zh": "导出 MXL 文件", "en": "Export MXL File"},
+        "fd_export_midi": {"zh": "导出 MIDI 文件", "en": "Export MIDI File"},
+        "fd_export_xml": {"zh": "导出 MusicXML 文件", "en": "Export MusicXML File"},
+        "fd_export_ly": {"zh": "导出 LilyPond 文件", "en": "Export LilyPond File"},
         "fd_json_filter": {
             "zh": "JSON 文件 (*.json);;所有文件 (*)",
             "en": "JSON Files (*.json);;All Files (*)",
@@ -132,6 +135,9 @@ class LanguageManager:
         # ── View menu ──
         "menu_view": {"zh": "视图", "en": "View"},
         "menu_preview": {"zh": "预览乐谱", "en": "Preview Score"},
+        "menu_theme": {"zh": "主题", "en": "Theme"},
+        "menu_theme_light": {"zh": "浅色模式", "en": "Light Mode"},
+        "menu_theme_dark": {"zh": "暗色模式", "en": "Dark Mode"},
         # ── Templates ──
         "menu_templates": {"zh": "模板", "en": "Templates"},
         "menu_templates_blank": {"zh": "空白模板", "en": "Blank Template"},
