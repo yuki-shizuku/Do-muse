@@ -138,6 +138,12 @@ class MainWindow(QMainWindow):
         self.action_template_scale.triggered.connect(lambda: self.on_load_template("scale"))
         self._templates_menu.addAction(self.action_template_scale)
 
+        self._templates_menu.addSeparator()
+
+        self.action_template_macro_demo = QAction(LanguageManager.tr("menu_templates_macro_demo"), self)
+        self.action_template_macro_demo.triggered.connect(lambda: self.on_load_template("macro_demo"))
+        self._templates_menu.addAction(self.action_template_macro_demo)
+
         # Recent files submenu
         self._recent_menu = self._file_menu.addMenu(LanguageManager.tr("menu_recent"))
         self._refresh_recent_files_menu()
@@ -485,6 +491,7 @@ class MainWindow(QMainWindow):
         self.action_template_piano.setText(LanguageManager.tr("menu_templates_piano"))
         self.action_template_duo.setText(LanguageManager.tr("menu_templates_duo"))
         self.action_template_scale.setText(LanguageManager.tr("menu_templates_scale"))
+        self.action_template_macro_demo.setText(LanguageManager.tr("menu_templates_macro_demo"))
 
         # Recent files submenu
         self._recent_menu.setTitle(LanguageManager.tr("menu_recent"))

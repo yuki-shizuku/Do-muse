@@ -19,7 +19,7 @@ A PyQt6 desktop application that converts JSON score data to MusicXML (.mxl) for
 - **Templates & Recent Files** — Quick-start templates and recent file tracking
 - **Rich Musical Notation** — Full support for:
   - Ties, slurs (start/continue/stop), articulations, dynamics
-  - Ornaments (trill, mordent, turn)
+  - Ornaments (trill, mordent, turn, inverted mordent, inverted turn)
   - Grace notes, chords, arpeggios
   - Tremolo, glissando
   - Hairpin (crescendo/diminuendo)
@@ -31,6 +31,7 @@ A PyQt6 desktop application that converts JSON score data to MusicXML (.mxl) for
   - Native pedal markings (PedalMark)
   - Fermatas
   - Intelligent clef assignment (treble/bass/alto) based on instrument
+- **Macro System** — Define reusable note blocks in `"macros"` and reference them via `{"ref": "name"}` to eliminate repetition
 
 ---
 
@@ -94,11 +95,16 @@ python main.py -i input.mid -e output.ly -f ly
     "time_signature": "4/4",
     "key_signature": "C"
   },
+  "macros": {
+    "chord": [
+      { "chord": [60, 64, 67], "duration": "half", "velocity": 80 }
+    ]
+  },
   "tracks": [
     {
       "instrument": "Acoustic Grand Piano",
       "notes": [
-        { "pitch": 60, "duration": "quarter", "velocity": 80 },
+        { "ref": "chord" },
         { "pitch": 64, "duration": "quarter", "velocity": 80 },
         { "pitch": 67, "duration": "half", "velocity": 85, "fermata": true }
       ]
@@ -140,11 +146,8 @@ Do-muse/
 ├── resources/
 │   ├── style.qss                # Light theme stylesheet
 │   └── style_dark.qss           # Dark theme stylesheet
-└── tests/
-    ├── __init__.py
-    ├── test_json_validator.py   # Validator unit tests
-    ├── test_music_exporter.py   # Exporter unit tests
-    └── test_gm_mapping.py       # GM mapping unit tests
+├── test_all_features.json       # Comprehensive feature demo JSON
+└── output/                      # Export output directory (auto-created)
 ```
 
 ---
@@ -159,15 +162,7 @@ Do-muse/
 | Target Notation Software | MuseScore Studio 4 |
 
 ---
-
-## Running Tests
-
-```bash
-python -m unittest discover -s tests -v
-```
-
----
-
+	
 ## License
 
 [MIT](LICENSE)
@@ -199,6 +194,7 @@ python main.py
 - 浅色/暗色主题：一键切换界面配色
 - 模板与最近文件：提供快速起始模板和最近文件记录
 - 丰富的乐谱标记：连音线、演奏法、力度、装饰音、倚音、和弦、琶音、震音、滑音、渐强渐弱、渐快渐慢、突强突弱、表情术语、踏板标记、延音线、重复标记、Volta 括号等
+- **宏系统**：在 JSON 顶层定义可复用的音符块，通过 `{"ref": "name"}` 引用，消除重复
 - 智能谱号分配：根据乐器自动选择高音/低音/中音谱号
 
 ### 命令行用法

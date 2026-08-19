@@ -52,6 +52,7 @@ Do Muse uses **JSON format** as the sole intermediate language between user inpu
 | `composer` | string | No | `"Unknown"` | Composer name |
 | `metadata` | object | **Yes** | — | Score metadata: tempo, time signature, etc. |
 | `tracks` | array | **Yes** | — | List of tracks, each representing an instrument |
+| `macros` | object | No | (none) | Named reusable note blocks, referenced via `{"ref": "name"}` (see Section 37) |
 
 ---
 
@@ -980,18 +981,138 @@ Do Muse now supports multiple input and output formats beyond JSON.
 5. Limited metadata (title, composer, tempo, time signature, key signature) is extracted from the first part
 
 ### 36.4 How Export Works
-
-1. JSON content is validated using the same validation rules (Section 34)
-2. A music21 Score object is built via `_build_score()` (shared by all exporters)
-3. The Score is written to the target format:
-   - **MXL**: MusicXML → DOCTYPE removed → compressed into `.mxl` ZIP
-   - **MIDI**: Direct music21 `score.write('midi', fp=...)`
-   - **MusicXML**: MusicXML → DOCTYPE removed → saved as `.xml`
-   - **LilyPond**: Direct music21 `score.write('lilypond', fp=...)`
-
-### 36.5 Import Limitations
-
-- **MIDI files may lack dynamics, articulation, and notation details** since MIDI only stores note-on/note-off events and velocity
-- **MusicXML**: Grace notes, complex ornaments, and hairpins may not be fully preserved
-- **Metadata** (title, composer) is only available if the source file includes it
-- Instruments are mapped via General MIDI program numbers; unrecognized instruments default to "Acoustic Grand Piano"
+	
+	1. JSON content is validated using the same validation rules (Section 34)
+	2. A music21 Score object is built via `_build_score()` (shared by all exporters)
+	3. The Score is written to the target format:
+	   - **MXL**: MusicXML → DOCTYPE removed → compressed into `.mxl` ZIP
+	   - **MIDI**: Direct music21 `score.write('midi', fp=...)`
+	   - **MusicXML**: MusicXML → DOCTYPE removed → saved as `.xml`
+	   - **LilyPond**: Direct music21 `score.write('lilypond', fp=...)`
+	
+	### 36.5 Import Limitations
+	
+	- **MIDI files may lack dynamics, articulation, and notation details** since MIDI only stores note-on/note-off events and velocity
+	- **MusicXML**: Grace notes, complex ornaments, and hairpins may not be fully preserved
+	- **Metadata** (title, composer) is only available if the source file includes it
+	- Instruments are mapped via General MIDI program numbers; unrecognized instruments default to "Acoustic Grand Piano"
+	
+	---
+	
+	## 37. Macro System (宏系统)
+	
+	### 37.1 Overview
+	
+	The Macro System allows defining reusable note blocks at the top level of the JSON
+	and referencing them throughout the `notes` arrays. This avoids repeating the same
+	note sequences multiple times, making the JSON more concise and maintainable.
+	
+	Macros are expanded **at validation time** — after expansion, the rest of the
+	pipeline (export, preview) works with the fully expanded notes without any
+	knowledge of macros.
+	
+	### 37.2 Macro Definition
+	
+	Add a `"macros"` field at the top level of the JSON. Each key is a macro name
+	(string), and each value is an array of note objects:
+	
+	```json
+	"macros": {
+	  "bass_line": [
+	    { "pitch": 36, "duration": "quarter", "velocity": 75 },
+	    { "pitch": 43, "duration": "quarter", "velocity": 75 },
+	    { "pitch": 40, "duration": "quarter", "velocity": 75 },
+	    { "pitch": 48, "duration": "quarter", "velocity": 75 }
+	  ],
+	  "chord_hit": [
+	    { "chord": [60, 64, 67], "duration": "half", "velocity": 85, "arpeggio": true }
+	  ]
+	}
+	```
+	
+	### 37.3 Macro Reference
+	
+	Use `{"ref": "macro_name"}` as a note object in the `notes` array to reference
+	a macro. The reference is replaced with the macro's notes array inline:
+	
+	```json
+	"notes": [
+	  { "ref": "bass_line" },
+	  { "ref": "chord_hit" },
+	  { "ref": "bass_line" },
+	  { "pitch": 72, "duration": "whole", "velocity": 90 }
+	]
+	```
+	
+	After expansion, the above is equivalent to:
+	```json
+	"notes": [
+	  { "pitch": 36, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 43, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 40, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 48, "duration": "quarter", "velocity": 75 },
+	  { "chord": [60, 64, 67], "duration": "half", "velocity": 85, "arpeggio": true },
+	  { "pitch": 36, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 43, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 40, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 48, "duration": "quarter", "velocity": 75 },
+	  { "pitch": 72, "duration": "whole", "velocity": 90 }
+	]
+	```
+	
+	### 37.4 Validation Rules
+	
+	| Rule | Description |
+	|------|-------------|
+	| `macros` must be an object | Each key is a string, each value is a non-empty array |
+	| Each macro must be a non-empty array | Empty macros are invalid |
+	| Each macro note must have `pitch` or `chord` | Follows the same rules as regular notes |
+	| Macro notes cannot contain `ref` | Nested macro references are not allowed |
+	| `ref` references must be defined | Referencing an undefined macro name is an error |
+	| `ref` cannot coexist with other fields | `{"ref": "x", "pitch": 60}` is invalid |
+	| `ref` value must be a string | Non-string ref values are rejected |
+	
+	### 37.5 Complete Example
+	
+	```json
+	{
+	  "title": "Macro Demo",
+	  "composer": "Do Muse",
+	  "metadata": {
+	    "tempo_bpm": 120,
+	    "time_signature": "4/4",
+	    "key_signature": "C"
+	  },
+	  "macros": {
+	    "bass_line": [
+	      { "pitch": 36, "duration": "quarter", "velocity": 75 },
+	      { "pitch": 43, "duration": "quarter", "velocity": 75 },
+	      { "pitch": 40, "duration": "quarter", "velocity": 75 },
+	      { "pitch": 48, "duration": "quarter", "velocity": 75 }
+	    ],
+	    "chord_hit": [
+	      { "chord": [60, 64, 67], "duration": "half", "velocity": 85, "arpeggio": true }
+	    ]
+	  },
+	  "tracks": [
+	    {
+	      "instrument": "Acoustic Grand Piano",
+	      "notes": [
+	        { "ref": "bass_line" },
+	        { "ref": "chord_hit" },
+	        { "ref": "bass_line" },
+	        { "ref": "chord_hit" },
+	        { "pitch": 72, "duration": "whole", "velocity": 90 }
+	      ]
+	    }
+	  ]
+	}
+	```
+	
+	### 37.6 Use Cases
+	
+	- **Ostinato / Bass lines**: Repeated bass patterns across multiple tracks
+	- **Chord progressions**: Common harmonic sequences repeated throughout
+	- **Scale runs**: Technical passages that appear in multiple sections
+	- **Rhythmic patterns**: Drum or accompaniment patterns reused
+	- **Section repeats**: Entire musical phrases reused in different parts of the piece

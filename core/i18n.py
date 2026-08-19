@@ -144,6 +144,7 @@ class LanguageManager:
         "menu_templates_piano": {"zh": "钢琴独奏", "en": "Piano Solo"},
         "menu_templates_duo": {"zh": "二重奏", "en": "Duo"},
         "menu_templates_scale": {"zh": "音阶练习", "en": "Scale Exercise"},
+        "menu_templates_macro_demo": {"zh": "宏演示", "en": "Macro Demo"},
         # ── Recent files ──
         "menu_recent": {"zh": "最近打开", "en": "Recent Files"},
         "msg_no_recent_files": {"zh": "无最近文件", "en": "No recent files"},

@@ -4,7 +4,11 @@ JSON validator — validates the completeness and legality of score JSON data
 Provides the validate() function to check the AI Muse score JSON structure,
 including required fields, type checks, range checks, and duration validity,
 and auto-fills missing default values.
+Also supports macro expansion: macros defined in the top-level "macros" field
+can be referenced via {"ref": "macro_name"} in notes arrays.
 """
+
+import copy
 
 # Base duration set
 _BASE_DURATIONS = {"whole", "half", "quarter", "eighth", "16th", "32nd", "64th"}
@@ -59,10 +63,151 @@ def _is_valid_duration(duration_str: str) -> bool:
     return base in _BASE_DURATIONS
 
 
+def _expand_macros(json_data: dict) -> list:
+    """
+    Expand macro references in the score JSON data.
+
+    Macros are defined in the top-level "macros" field as a dict of
+    name -> notes_array mappings. References in tracks use {"ref": "name"}
+    to insert the macro's notes array inline.
+
+    This function validates macro definitions, expands all references,
+    and removes the "macros" field from the data.
+
+    Args:
+        json_data: The score JSON dict to expand macros in.
+
+    Returns:
+        list: A list of error messages (empty if no errors).
+    """
+    errors = []
+
+    macros = json_data.get("macros")
+    if macros is None:
+        return errors
+
+    # Validate macros structure
+    if not isinstance(macros, dict):
+        errors.append("macros must be an object (dict)")
+        return errors
+
+    if len(macros) == 0:
+        errors.append("macros cannot be empty")
+        return errors
+
+    # Validate each macro definition
+    for macro_name, macro_notes in macros.items():
+        if not isinstance(macro_name, str):
+            errors.append(
+                f"Macro name must be a string, got {type(macro_name).__name__}"
+            )
+            continue
+
+        if not isinstance(macro_notes, list):
+            errors.append(
+                f"Macro '{macro_name}' must be an array of note objects"
+            )
+            continue
+
+        if len(macro_notes) == 0:
+            errors.append(f"Macro '{macro_name}' cannot be empty")
+            continue
+
+        # Validate each note in the macro
+        for mn_idx, mn in enumerate(macro_notes):
+            if not isinstance(mn, dict):
+                errors.append(
+                    f"Macro '{macro_name}', note {mn_idx + 1} must be an object"
+                )
+                continue
+
+            # Check for nested ref (forbidden)
+            if "ref" in mn:
+                errors.append(
+                    f"Macro '{macro_name}', note {mn_idx + 1}: nested 'ref' "
+                    "is not allowed inside macros"
+                )
+                continue
+
+            # Basic note validation: must have pitch or chord
+            if "pitch" not in mn and "chord" not in mn:
+                errors.append(
+                    f"Macro '{macro_name}', note {mn_idx + 1}: "
+                    "each note must have 'pitch' or 'chord'"
+                )
+
+    if errors:
+        return errors
+
+    # Expand refs in tracks
+    tracks = json_data.get("tracks")
+    if tracks is not None and isinstance(tracks, list):
+        for t_idx, track in enumerate(tracks):
+            if not isinstance(track, dict):
+                continue
+
+            notes = track.get("notes")
+            if notes is None or not isinstance(notes, list):
+                continue
+
+            expanded_notes = []
+            for n_idx, note_obj in enumerate(notes):
+                if not isinstance(note_obj, dict):
+                    expanded_notes.append(note_obj)
+                    continue
+
+                ref = note_obj.get("ref")
+                if ref is not None:
+                    # Validate ref field is a string
+                    if not isinstance(ref, str):
+                        errors.append(
+                            f"Track {t_idx + 1}, note {n_idx + 1}: "
+                            "'ref' must be a string"
+                        )
+                        expanded_notes.append(note_obj)
+                        continue
+
+                    # Check ref doesn't coexist with other fields
+                    other_keys = [k for k in note_obj if k != "ref"]
+                    if other_keys:
+                        errors.append(
+                            f"Track {t_idx + 1}, note {n_idx + 1}: "
+                            "'ref' cannot coexist with other fields "
+                            f"({', '.join(other_keys)})"
+                        )
+                        expanded_notes.append(note_obj)
+                        continue
+
+                    # Look up the macro
+                    if ref not in macros:
+                        errors.append(
+                            f"Track {t_idx + 1}, note {n_idx + 1}: "
+                            f"macro '{ref}' is not defined"
+                        )
+                        expanded_notes.append(note_obj)
+                        continue
+
+                    # Expand: deep copy macro notes to avoid mutation issues
+                    expanded_notes.extend(copy.deepcopy(macros[ref]))
+                else:
+                    expanded_notes.append(note_obj)
+
+            track["notes"] = expanded_notes
+
+    # Remove macros field after expansion
+    del json_data["macros"]
+
+    return errors
+
+
 def validate(json_data: dict) -> tuple:
     """
     Validate the completeness and legality of a score JSON dictionary, and auto-fill
     missing default values.
+
+    Supports macro expansion: if the JSON contains a top-level "macros" field,
+    macro references {"ref": "macro_name"} in notes arrays are expanded before
+    validation.
 
     Validation rules:
       - metadata must exist with tempo_bpm (int) and time_signature (string "x/y")
@@ -90,6 +235,9 @@ def validate(json_data: dict) -> tuple:
     if not isinstance(json_data, dict):
         errors.append("JSON data must be an object (not an array or scalar)")
         return (False, errors)
+
+    # ---------- Expand macros (if present) ----------
+    errors.extend(_expand_macros(json_data))
 
     # ---------- Fill defaults ----------
     if "title" not in json_data or json_data.get("title") is None:
