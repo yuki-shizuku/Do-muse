@@ -1,20 +1,27 @@
 """
 music21 score export engine — builds a score from validated JSON and exports
-to multiple formats (.mxl, .mid, .xml, .ly).
+to multiple formats (.mxl, .mid, .xml, .ly, .mp3, .wav, .flac, .ogg).
 
 Provides:
   - export_to_mxl()   — compressed MusicXML
   - export_to_midi()  — Standard MIDI File
   - export_to_xml()   — uncompressed MusicXML
   - export_to_ly()    — LilyPond
+  - export_to_mp3()   — MP3 audio (via MuseScore CLI)
+  - export_to_wav()   — WAV audio (via MuseScore CLI)
+  - export_to_flac()  — FLAC audio (via MuseScore CLI)
+  - export_to_ogg()   — OGG audio (via MuseScore CLI)
   - export_score()    — dispatch by format string
   - _build_score()    — shared score builder (used by all exporters)
+  - _find_musescore() — locate MuseScore executable
   - parse_duration()  — duration string -> float
   - get_duration_type() — duration string -> music21 type string
 """
 
 import os
 import re
+import shutil
+import subprocess
 import zipfile
 import tempfile
 from dataclasses import dataclass, field
@@ -159,6 +166,27 @@ def parse_duration(duration_str: str) -> float:
     return value
 
 
+def _parse_duration_data(duration_str: str) -> tuple[str, int, float]:
+    """
+    Parse a duration string once into base type, dot count, and float value.
+
+    Combines the work of get_duration_type(), _get_dot_count(), and
+    parse_duration() to avoid repeated rstrip(".") calls.
+
+    Args:
+        duration_str: Duration string, e.g. "quarter", "half.", "16th".
+
+    Returns:
+        tuple: (base_type, dot_count, float_value)
+    """
+    base = duration_str.rstrip(".")
+    dot_count = len(duration_str) - len(base)
+    value = _DURATION_TO_FLOAT.get(base, 1.0)
+    if dot_count > 0:
+        value *= 1.5
+    return base, dot_count, value
+
+
 def get_duration_type(duration_str: str) -> str:
     """
     Return the music21 duration type string.
@@ -204,6 +232,25 @@ def _remove_doctype(xml_content: str) -> str:
         "",
         xml_content,
     )
+
+
+def _score_to_clean_xml(score: stream.Score) -> str:
+    """
+    Convert a music21 Score to a DOCTYPE-free MusicXML string in memory.
+
+    Uses GeneralObjectExporter to avoid temporary file I/O.
+
+    Args:
+        score: music21 Score object.
+
+    Returns:
+        str: Clean MusicXML string with DOCTYPE removed.
+    """
+    from music21.musicxml import m21ToXml
+    gex = m21ToXml.GeneralObjectExporter()
+    xml_bytes = gex.parseWellformedObject(score)
+    xml_content = xml_bytes.decode('utf-8')
+    return _remove_doctype(xml_content)
 
 
 def _get_clef_for_program(program_number: int) -> str:
@@ -843,9 +890,7 @@ def _build_score(json_data: dict) -> stream.Score:
             dur_str = n.get("duration", "quarter")
             vel = n.get("velocity", 80)
 
-            dur_type = get_duration_type(dur_str)
-            dot_count = _get_dot_count(dur_str)
-            dur_float = parse_duration(dur_str)
+            dur_type, dot_count, dur_float = _parse_duration_data(dur_str)
 
             # Build the core note/rest object
             n_obj = _build_note_object(n, dur_type, dot_count, vel)
@@ -931,22 +976,18 @@ def _build_score(json_data: dict) -> stream.Score:
             # enabling proper repeat barline and volta bracket placement
             part.makeMeasures(inPlace=True)
 
-            if repeat_begin is not None and repeat_begin:
-                # Insert start repeat barline at the beginning of the first measure
-                first_measure = part.getElementsByClass(stream.Measure).first()
-                if first_measure is not None:
+            if repeat_begin or repeat_end or volta_num:
+                measures = part.getElementsByClass(stream.Measure)
+                first_measure = measures.first()
+                last_measure = measures.last()
+
+                if repeat_begin and first_measure is not None:
                     first_measure.leftBarline = bar.Repeat(direction="start")
 
-            if repeat_end is not None and repeat_end:
-                # Insert end repeat barline at the end of the last measure
-                last_measure = part.getElementsByClass(stream.Measure).last()
-                if last_measure is not None:
+                if repeat_end and last_measure is not None:
                     last_measure.rightBarline = bar.Repeat(direction="end")
 
-            if volta_num is not None and volta_num:
-                # Apply volta bracket to the first measure
-                first_measure = part.getElementsByClass(stream.Measure).first()
-                if first_measure is not None:
+                if volta_num and first_measure is not None:
                     volta_spanner = spanner21.Volta("volta", number=volta_num)
                     volta_spanner.addSpannedElements(first_measure)
                     part.insert(0, volta_spanner)
@@ -992,17 +1033,8 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
 
     score = _build_score(json_data)
 
-    # Export to temporary XML, then post-process
     try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as tmp:
-            temp_path = tmp.name
-
-        score.write('musicxml', fp=temp_path)
-
-        with open(temp_path, 'r', encoding='utf-8') as f:
-            xml_content = f.read()
-
-        xml_content = _remove_doctype(xml_content)
+        xml_content = _score_to_clean_xml(score)
 
         mxl_filename = os.path.splitext(os.path.basename(output_path))[0] + '.musicxml'
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -1017,11 +1049,7 @@ def export_to_mxl(json_data: dict, output_path: str) -> bool:
             zf.writestr('META-INF/container.xml', container_xml)
             zf.writestr(mxl_filename, xml_content)
 
-        os.unlink(temp_path)
-
     except Exception as e:
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
         raise OSError(f"music21 export failed: {e}") from e
 
     return True
@@ -1067,23 +1095,10 @@ def export_to_xml(json_data: dict, output_path: str) -> bool:
     _ensure_output_dir(output_path)
     score = _build_score(json_data)
     try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as tmp:
-            temp_path = tmp.name
-
-        score.write('musicxml', fp=temp_path)
-
-        with open(temp_path, 'r', encoding='utf-8') as f:
-            xml_content = f.read()
-
-        xml_content = _remove_doctype(xml_content)
-
+        xml_content = _score_to_clean_xml(score)
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(xml_content)
-
-        os.unlink(temp_path)
     except Exception as e:
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
         raise OSError(f"MusicXML export failed: {e}") from e
     return True
 
@@ -1111,6 +1126,195 @@ def export_to_ly(json_data: dict, output_path: str) -> bool:
     return True
 
 
+# ── MuseScore CLI candidate paths (Windows / Linux / macOS) ──────────
+_MUSESCORE_CANDIDATES: list[str] = [
+    "MuseScore4", "MuseScore3", "musescore",
+    r"C:\Program Files\MuseScore 4\bin\MuseScore4.exe",
+    r"C:\Program Files (x86)\MuseScore 4\bin\MuseScore4.exe",
+    r"D:\MuseScore\bin\MuseScore4.exe",
+    r"C:\Program Files\MuseScore 3\bin\MuseScore3.exe",
+    "/usr/bin/musescore",
+    "/usr/local/bin/musescore",
+    "/Applications/MuseScore 4.app/Contents/MacOS/MuseScore4",
+]
+
+
+_musescore_cache: Optional[str] = None
+_musescore_searched: bool = False
+
+
+def _find_musescore() -> str:
+    """
+    Locate the MuseScore executable on the current system.
+
+    Searches PATH via shutil.which() first, then falls back to a list of
+    well-known install paths on Windows, Linux, and macOS. The result is
+    cached after the first call to avoid repeated filesystem lookups.
+
+    Returns:
+        str: Absolute path to the MuseScore executable, or empty string
+             if not found.
+    """
+    global _musescore_cache, _musescore_searched
+    if _musescore_searched:
+        return _musescore_cache
+    for name in ("MuseScore4", "MuseScore3", "musescore"):
+        path = shutil.which(name)
+        if path:
+            _musescore_cache = path
+            _musescore_searched = True
+            return path
+    for candidate in _MUSESCORE_CANDIDATES:
+        if os.path.isfile(candidate):
+            _musescore_cache = candidate
+            _musescore_searched = True
+            return candidate
+    _musescore_cache = ""
+    _musescore_searched = True
+    return ""
+
+
+def _export_audio_via_musescore(
+    json_data: dict, output_path: str, bitrate: int = 192
+) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to audio via MuseScore CLI.
+
+    Pipeline: JSON → music21 Score → temporary MusicXML → MuseScore CLI → audio file.
+    MuseScore determines the output format from the file extension (.mp3, .wav,
+    .flac, .ogg).
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output audio file path. Extension determines format.
+        bitrate: MP3 bitrate in kbit/s. Defaults to 192. Ignored for lossless formats.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If MuseScore is not found, subprocess fails, or output file
+                 is not created.
+    """
+    _ensure_output_dir(output_path)
+
+    musescore = _find_musescore()
+    if not musescore:
+        raise OSError(
+            "MuseScore not found. Please install MuseScore Studio 4 to export audio."
+        )
+
+    score = _build_score(json_data)
+    xml_content = _score_to_clean_xml(score)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.xml', delete=False, encoding='utf-8'
+        ) as tmp:
+            tmp.write(xml_content)
+            temp_path = tmp.name
+
+        cmd = [musescore, "-o", output_path, "-b", str(bitrate), temp_path]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise OSError(
+                f"MuseScore audio export failed (exit {result.returncode}): "
+                f"{result.stderr.strip()}"
+            )
+        if not os.path.exists(output_path):
+            raise OSError(
+                f"MuseScore did not produce output file: {output_path}"
+            )
+    except subprocess.TimeoutExpired:
+        raise OSError("MuseScore audio export timed out (120s).")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+    return True
+
+
+def export_to_mp3(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to MP3 audio (.mp3).
+
+    Uses MuseScore CLI for audio synthesis with a default bitrate of 192 kbit/s.
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .mp3 file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If MuseScore is not found or audio export fails.
+    """
+    return _export_audio_via_musescore(json_data, output_path, bitrate=192)
+
+
+def export_to_wav(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to WAV audio (.wav).
+
+    Uses MuseScore CLI for audio synthesis. WAV is uncompressed; bitrate is ignored.
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .wav file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If MuseScore is not found or audio export fails.
+    """
+    return _export_audio_via_musescore(json_data, output_path)
+
+
+def export_to_flac(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to FLAC audio (.flac).
+
+    Uses MuseScore CLI for audio synthesis. FLAC is lossless; bitrate is ignored.
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .flac file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If MuseScore is not found or audio export fails.
+    """
+    return _export_audio_via_musescore(json_data, output_path)
+
+
+def export_to_ogg(json_data: dict, output_path: str) -> bool:
+    """
+    Build a music21 Score from validated JSON and export to OGG Vorbis audio (.ogg).
+
+    Uses MuseScore CLI for audio synthesis.
+
+    Args:
+        json_data: Validated score JSON dict.
+        output_path: Output .ogg file path.
+
+    Returns:
+        bool: True on success.
+
+    Raises:
+        OSError: If MuseScore is not found or audio export fails.
+    """
+    return _export_audio_via_musescore(json_data, output_path)
+
+
 def export_score(json_data: dict, output_path: str, fmt: str = "mxl") -> bool:
     """
     Dispatch to the appropriate export function based on format string.
@@ -1120,6 +1324,10 @@ def export_score(json_data: dict, output_path: str, fmt: str = "mxl") -> bool:
       - "midi" -> Standard MIDI File
       - "xml"  -> uncompressed MusicXML
       - "ly"   -> LilyPond
+      - "mp3"  -> MP3 audio (via MuseScore CLI)
+      - "wav"  -> WAV audio (via MuseScore CLI)
+      - "flac" -> FLAC audio (via MuseScore CLI)
+      - "ogg"  -> OGG audio (via MuseScore CLI)
 
     Args:
         json_data: Validated score JSON dict.
@@ -1137,6 +1345,10 @@ def export_score(json_data: dict, output_path: str, fmt: str = "mxl") -> bool:
         "midi": export_to_midi,
         "xml": export_to_xml,
         "ly": export_to_ly,
+        "mp3": export_to_mp3,
+        "wav": export_to_wav,
+        "flac": export_to_flac,
+        "ogg": export_to_ogg,
     }
     exporter = exporters.get(fmt.lower())
     if exporter is None:

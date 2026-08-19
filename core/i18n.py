@@ -22,6 +22,10 @@ class LanguageManager:
         "menu_export_midi": {"zh": "MIDI", "en": "MIDI"},
         "menu_export_xml": {"zh": "MusicXML", "en": "MusicXML"},
         "menu_export_ly": {"zh": "LilyPond", "en": "LilyPond"},
+        "menu_export_mp3": {"zh": "MP3 音频", "en": "MP3 Audio"},
+        "menu_export_wav": {"zh": "WAV 音频", "en": "WAV Audio"},
+        "menu_export_flac": {"zh": "FLAC 音频", "en": "FLAC Audio"},
+        "menu_export_ogg": {"zh": "OGG 音频", "en": "OGG Audio"},
         "menu_exit": {"zh": "退出", "en": "Exit"},
         # ── Language menu ──
         "menu_language": {"zh": "语言", "en": "Language"},
@@ -105,6 +109,10 @@ class LanguageManager:
         "msg_format_midi": {"zh": "MIDI", "en": "MIDI"},
         "msg_format_xml": {"zh": "MusicXML", "en": "MusicXML"},
         "msg_format_ly": {"zh": "LilyPond", "en": "LilyPond"},
+        "msg_format_mp3": {"zh": "MP3 (有损压缩音频)", "en": "MP3 (Lossy Compressed Audio)"},
+        "msg_format_wav": {"zh": "WAV (无压缩音频)", "en": "WAV (Uncompressed Audio)"},
+        "msg_format_flac": {"zh": "FLAC (无损压缩音频)", "en": "FLAC (Lossless Compressed Audio)"},
+        "msg_format_ogg": {"zh": "OGG (有损压缩音频)", "en": "OGG (Lossy Compressed Audio)"},
         # ── File dialog ──
         "fd_load_json": {"zh": "加载 JSON 文件", "en": "Load JSON File"},
         "fd_save_json": {"zh": "保存 JSON 文件", "en": "Save JSON File"},
@@ -112,6 +120,10 @@ class LanguageManager:
         "fd_export_midi": {"zh": "导出 MIDI 文件", "en": "Export MIDI File"},
         "fd_export_xml": {"zh": "导出 MusicXML 文件", "en": "Export MusicXML File"},
         "fd_export_ly": {"zh": "导出 LilyPond 文件", "en": "Export LilyPond File"},
+        "fd_export_mp3": {"zh": "导出 MP3 文件", "en": "Export MP3 File"},
+        "fd_export_wav": {"zh": "导出 WAV 文件", "en": "Export WAV File"},
+        "fd_export_flac": {"zh": "导出 FLAC 文件", "en": "Export FLAC File"},
+        "fd_export_ogg": {"zh": "导出 OGG 文件", "en": "Export OGG File"},
         "fd_json_filter": {
             "zh": "JSON 文件 (*.json);;所有文件 (*)",
             "en": "JSON Files (*.json);;All Files (*)",
@@ -127,6 +139,26 @@ class LanguageManager:
         "fd_export_filter": {
             "zh": "MXL 文件 (*.mxl);;MIDI 文件 (*.mid);;MusicXML 文件 (*.xml);;LilyPond 文件 (*.ly);;所有文件 (*)",
             "en": "MXL Files (*.mxl);;MIDI Files (*.mid);;MusicXML Files (*.xml);;LilyPond Files (*.ly);;All Files (*)",
+        },
+        "fd_mp3_filter": {
+            "zh": "MP3 文件 (*.mp3);;所有文件 (*)",
+            "en": "MP3 Files (*.mp3);;All Files (*)",
+        },
+        "fd_wav_filter": {
+            "zh": "WAV 文件 (*.wav);;所有文件 (*)",
+            "en": "WAV Files (*.wav);;All Files (*)",
+        },
+        "fd_flac_filter": {
+            "zh": "FLAC 文件 (*.flac);;所有文件 (*)",
+            "en": "FLAC Files (*.flac);;All Files (*)",
+        },
+        "fd_ogg_filter": {
+            "zh": "OGG 文件 (*.ogg);;所有文件 (*)",
+            "en": "OGG Files (*.ogg);;All Files (*)",
+        },
+        "msg_musescore_not_found": {
+            "zh": "未找到 MuseScore，无法导出音频。\n请安装 MuseScore Studio 4。",
+            "en": "MuseScore not found, cannot export audio.\nPlease install MuseScore Studio 4.",
         },
         # ── Edit menu ──
         "menu_edit": {"zh": "编辑", "en": "Edit"},

@@ -971,6 +971,10 @@ Do Muse now supports multiple input and output formats beyond JSON.
 | MIDI | `.mid` | Standard MIDI File | `midi` |
 | MusicXML | `.xml` | Uncompressed MusicXML | `xml` |
 | LilyPond | `.ly` | LilyPond music notation file | `ly` |
+| MP3 | `.mp3` | MPEG Layer III (lossy compressed audio) | `mp3` |
+| WAV | `.wav` | RIFF Waveform (uncompressed audio) | `wav` |
+| FLAC | `.flac` | Free Lossless Audio Codec | `flac` |
+| OGG | `.ogg` | OGG Vorbis (lossy compressed audio) | `ogg` |
 
 ### 36.3 How Import Works
 
@@ -981,7 +985,7 @@ Do Muse now supports multiple input and output formats beyond JSON.
 5. Limited metadata (title, composer, tempo, time signature, key signature) is extracted from the first part
 
 ### 36.4 How Export Works
-	
+
 	1. JSON content is validated using the same validation rules (Section 34)
 	2. A music21 Score object is built via `_build_score()` (shared by all exporters)
 	3. The Score is written to the target format:
@@ -989,8 +993,20 @@ Do Muse now supports multiple input and output formats beyond JSON.
 	   - **MIDI**: Direct music21 `score.write('midi', fp=...)`
 	   - **MusicXML**: MusicXML → DOCTYPE removed → saved as `.xml`
 	   - **LilyPond**: Direct music21 `score.write('lilypond', fp=...)`
-	
-	### 36.5 Import Limitations
+	   - **Audio (MP3/WAV/FLAC/OGG)**: MusicXML → DOCTYPE removed → MuseScore CLI renders to audio via `MuseScore4 -o output.mp3 -b 192 input.xml`
+
+### 36.5 Audio Export Dependencies
+
+Audio export (MP3, WAV, FLAC, OGG) requires **MuseScore Studio 4** to be installed on the system. Do Muse locates the MuseScore executable via:
+
+1. `shutil.which()` — searches PATH for `MuseScore4`, `MuseScore3`, `musescore`
+2. Hardcoded candidate paths on Windows, Linux, and macOS
+
+The MuseScore CLI determines the output format from the file extension and uses its built-in SoundFont synthesizer for audio rendering. The `-b` flag sets the MP3 bitrate (default: 192 kbit/s).
+
+If MuseScore is not found, audio export raises an `OSError` with a message prompting the user to install MuseScore Studio 4.
+
+### 36.6 Import Limitations
 	
 	- **MIDI files may lack dynamics, articulation, and notation details** since MIDI only stores note-on/note-off events and velocity
 	- **MusicXML**: Grace notes, complex ornaments, and hairpins may not be fully preserved

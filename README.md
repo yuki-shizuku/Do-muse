@@ -10,7 +10,7 @@ A PyQt6 desktop application that converts JSON score data to MusicXML (.mxl) for
 
 - **JSON Editor** — Write or paste score data in JSON format with syntax highlighting
 - **Schema Validation** — Validate note structure, pitch ranges, durations, dynamics, articulations, and more
-- **Multi-Format Export** — Export to `.mxl` (compressed MusicXML), `.mid` (MIDI), `.xml` (MusicXML), or `.ly` (LilyPond)
+- **Multi-Format Export** — Export to `.mxl` (compressed MusicXML), `.mid` (MIDI), `.xml` (MusicXML), `.ly` (LilyPond), `.mp3`, `.wav`, `.flac`, or `.ogg` (audio via MuseScore CLI)
 - **Multi-Format Import** — Import from `.xml`/`.mxl` (MusicXML) or `.mid`/`.midi` (MIDI) back to JSON
 - **Score Preview** — Generate a PNG preview of the score via MuseScore CLI
 - **CLI Mode** — Batch convert files without launching the GUI
@@ -62,7 +62,7 @@ python main.py
 
 1. **Write JSON** — Paste or type JSON score data in the left panel
 2. **Validate** — Click "Validate" to check syntax and score schema
-3. **Export** — Click "Export" and choose format (.mxl, .mid, .xml, .ly)
+3. **Export** — Click "Export" and choose format (.mxl, .mid, .xml, .ly, .mp3, .wav, .flac, .ogg)
 4. **Preview** — Use "View → Preview Score" to see a rendered preview
 5. **Open** — Open the exported file in MuseScore Studio 4
 
@@ -80,6 +80,9 @@ python main.py -i score.json -e output.mid -f midi
 
 # Import MIDI, export to LilyPond
 python main.py -i input.mid -e output.ly -f ly
+
+# Export JSON to MP3 audio
+python main.py -i score.json -e output.mp3 -f mp3
 ```
 
 ---
@@ -158,7 +161,8 @@ Do-muse/
 |-----------|-----------|
 | GUI Framework | PyQt6 |
 | Music Notation Engine | music21 |
-| Output Formats | Compressed MusicXML (.mxl), MIDI (.mid), MusicXML (.xml), LilyPond (.ly) |
+| Output Formats | Compressed MusicXML (.mxl), MIDI (.mid), MusicXML (.xml), LilyPond (.ly), MP3 (.mp3), WAV (.wav), FLAC (.flac), OGG (.ogg) |
+| Audio Synthesis | MuseScore Studio 4 CLI |
 | Target Notation Software | MuseScore Studio 4 |
 
 ---

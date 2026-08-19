@@ -13,6 +13,44 @@ from core.config_manager import ConfigManager
 from core.i18n import LanguageManager
 
 
+def _is_frozen() -> bool:
+    """Return True when running as a PyInstaller bundle."""
+    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
+
+def get_resource_path(relative_path: str) -> str:
+    """
+    Get absolute path to a bundled resource file.
+
+    When running as a PyInstaller bundle, resources are extracted to
+    sys._MEIPASS at runtime. When running from source, resources are
+    relative to the project root.
+
+    Args:
+        relative_path: Path relative to the project root, e.g. "resources/style.qss".
+
+    Returns:
+        str: Absolute path to the resource.
+    """
+    if _is_frozen():
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, relative_path)
+
+
+def get_app_dir() -> str:
+    """
+    Get the writable application directory.
+
+    When frozen, this is the directory containing the .exe (where config.ini
+    and output/ live). When running from source, this is the project root.
+    """
+    if _is_frozen():
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def run_cli(args):
     """
     执行命令行模式的导入/导出操作。
@@ -64,11 +102,11 @@ def run_gui():
     app.setApplicationName("Do Muse")
     app.setApplicationDisplayName("Do Muse - Score Generator")
 
-    # Load config and apply language setting
+    # Load config once and apply language setting
     config = ConfigManager().load_config()
     LanguageManager.set_language(config.get("language", "zh"))
 
-    window = MainWindow()
+    window = MainWindow(config)
     window.show()
 
     sys.exit(app.exec())
@@ -89,7 +127,7 @@ def main():
     )
     parser.add_argument(
         "-f", "--format",
-        choices=["mxl", "midi", "xml", "ly"],
+        choices=["mxl", "midi", "xml", "ly", "mp3", "wav", "flac", "ogg"],
         help="Export format (default: mxl)",
     )
     parser.add_argument(

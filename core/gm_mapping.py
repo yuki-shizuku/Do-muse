@@ -140,6 +140,10 @@ _PROGRAM_TO_NAME: dict[int, str] = {
 
 # Reverse mapping: instrument name -> program number (built once)
 _NAME_TO_PROGRAM: dict[str, int] = {name: num for num, name in _PROGRAM_TO_NAME.items()}
+# Lowercase lookup cache for O(1) case-insensitive search
+_NAME_TO_PROGRAM_LOWER: dict[str, int] = {
+    name.lower(): num for name, num in _NAME_TO_PROGRAM.items()
+}
 
 
 def get_program_number(instrument_name: str) -> int:
@@ -157,11 +161,7 @@ def get_program_number(instrument_name: str) -> int:
     """
     if not isinstance(instrument_name, str):
         return 0
-    name_clean = instrument_name.strip()
-    for name, num in _NAME_TO_PROGRAM.items():
-        if name.lower() == name_clean.lower():
-            return num
-    return 0
+    return _NAME_TO_PROGRAM_LOWER.get(instrument_name.strip().lower(), 0)
 
 
 def get_instrument_name(program_number: int) -> str:

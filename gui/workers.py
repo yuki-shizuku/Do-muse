@@ -32,7 +32,8 @@ class ExportWorker(QThread):
         Args:
             json_data: Validated score JSON dict.
             output_path: Output file path.
-            fmt: Format identifier ("mxl", "midi", "xml", "ly").
+            fmt: Format identifier ("mxl", "midi", "xml", "ly", "mp3", "wav",
+                 "flac", "ogg").
         """
         super().__init__()
         self._json_data = json_data
@@ -60,17 +61,6 @@ class PreviewWorker(QThread):
 
     finished_signal = pyqtSignal(bool, str, str)
 
-    # Common MuseScore executable names and paths
-    _MUSESCORE_CANDIDATES = [
-        "MuseScore4", "MuseScore3", "musescore",
-        r"D:\MuseScore\bin\MuseScore4.exe",
-        r"C:\Program Files\MuseScore 4\bin\MuseScore4.exe",
-        r"C:\Program Files\MuseScore 3\bin\MuseScore3.exe",
-        "/usr/bin/musescore",
-        "/usr/local/bin/musescore",
-        "/Applications/MuseScore 4.app/Contents/MacOS/MuseScore4",
-    ]
-
     def __init__(self, json_data: dict):
         """
         Initialize the preview worker.
@@ -81,26 +71,6 @@ class PreviewWorker(QThread):
         super().__init__()
         self._json_data = json_data
 
-    @classmethod
-    def _find_musescore(cls) -> str:
-        """
-        查找系统上可用的 MuseScore 可执行文件路径。
-
-        Returns:
-            str: MuseScore 可执行文件路径，若未找到则返回空字符串。
-        """
-        import shutil
-        for name in ("MuseScore4", "MuseScore3", "musescore"):
-            path = shutil.which(name)
-            if path:
-                return path
-
-        for candidate in cls._MUSESCORE_CANDIDATES:
-            if os.path.exists(candidate):
-                return candidate
-
-        return ""
-
     def run(self):
         """
         Generate a PNG preview of the score using MuseScore CLI.
@@ -108,7 +78,7 @@ class PreviewWorker(QThread):
         """
         xml_path = None
         try:
-            from core.music_exporter import _build_score, _remove_doctype
+            from core.music_exporter import _build_score, _remove_doctype, _find_musescore
 
             score = _build_score(self._json_data)
 
@@ -126,7 +96,7 @@ class PreviewWorker(QThread):
                 f.write(xml_content)
 
             # Step 2: Convert MusicXML to PNG via MuseScore CLI
-            musescore_path = self._find_musescore()
+            musescore_path = _find_musescore()
             if musescore_path:
                 png_prefix = xml_path.replace('.xml', '')
                 cmd = [musescore_path, "-o", png_prefix + ".png", "-T", "200", xml_path]

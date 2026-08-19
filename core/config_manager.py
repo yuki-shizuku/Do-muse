@@ -18,13 +18,17 @@ class ConfigManager:
         Initialize the config manager.
 
         Args:
-            config_path: Full path to config.ini. Defaults to config.ini under the project root.
+            config_path: Full path to config.ini. If None, auto-detects:
+                         - When frozen (PyInstaller): next to the .exe
+                         - When running from source: project root
         """
         if config_path is None:
-            self.config_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config.ini",
-            )
+            import sys
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                base = os.path.dirname(sys.executable)
+            else:
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            self.config_path = os.path.join(base, "config.ini")
         else:
             self.config_path = config_path
 

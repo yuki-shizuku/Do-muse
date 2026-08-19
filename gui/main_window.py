@@ -11,7 +11,7 @@ import os
 import platform
 import subprocess
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QPushButton, QSplitter,
     QMenuBar, QMessageBox, QFileDialog,
     QStatusBar, QProgressBar, QLabel
@@ -22,9 +22,6 @@ from PyQt6.QtGui import QAction
 from core import json_validator
 from core.i18n import LanguageManager
 from core.config_manager import ConfigManager
-from gui.log_handler import LogHandler
-from gui.json_highlighter import JsonHighlighter
-from gui.workers import ExportWorker, PreviewWorker
 from gui.templates import TEMPLATES
 
 logger = logging.getLogger(__name__)
@@ -52,11 +49,12 @@ class MainWindow(QMainWindow):
     :param parent: Parent widget, defaults to None.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, config=None, parent=None):
         """
         Initialize the main window: set up menus, layout, logging, and state.
 
         Args:
+            config: Pre-loaded config dict. If None, loads from config.ini.
             parent: Parent widget, defaults to None.
         """
         super().__init__(parent)
@@ -64,10 +62,13 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
 
         self.config_manager = ConfigManager()
+        if config is None:
+            config = self.config_manager.load_config()
+        self._config = config
         self._current_file_path: str = ""
         self._validation_status: str = "none"
-        self._export_worker: ExportWorker = None
-        self._preview_worker: PreviewWorker = None
+        self._export_worker = None
+        self._preview_worker = None
         self._current_theme: str = "light"
 
         self._setup_menu_bar()
@@ -80,7 +81,6 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
 
         # Apply saved theme
-        config = self.config_manager.load_config()
         self._current_theme = config.get("theme", "light")
         self._apply_theme(self._current_theme)
 
@@ -169,6 +169,22 @@ class MainWindow(QMainWindow):
         self.action_export_ly.triggered.connect(lambda: self.on_export_format("ly"))
         self._export_menu.addAction(self.action_export_ly)
 
+        self.action_export_mp3 = QAction(LanguageManager.tr("menu_export_mp3"), self)
+        self.action_export_mp3.triggered.connect(lambda: self.on_export_format("mp3"))
+        self._export_menu.addAction(self.action_export_mp3)
+
+        self.action_export_wav = QAction(LanguageManager.tr("menu_export_wav"), self)
+        self.action_export_wav.triggered.connect(lambda: self.on_export_format("wav"))
+        self._export_menu.addAction(self.action_export_wav)
+
+        self.action_export_flac = QAction(LanguageManager.tr("menu_export_flac"), self)
+        self.action_export_flac.triggered.connect(lambda: self.on_export_format("flac"))
+        self._export_menu.addAction(self.action_export_flac)
+
+        self.action_export_ogg = QAction(LanguageManager.tr("menu_export_ogg"), self)
+        self.action_export_ogg.triggered.connect(lambda: self.on_export_format("ogg"))
+        self._export_menu.addAction(self.action_export_ogg)
+
         self._file_menu.addSeparator()
 
         action_exit = QAction(LanguageManager.tr("menu_exit"), self)
@@ -233,6 +249,7 @@ class MainWindow(QMainWindow):
         self.json_text_edit = QPlainTextEdit(self)
         self.json_text_edit.setPlaceholderText(LanguageManager.tr("json_placeholder"))
         # Apply JSON syntax highlighting
+        from gui.json_highlighter import JsonHighlighter
         self._json_highlighter = JsonHighlighter(self.json_text_edit.document())
         splitter.addWidget(self.json_text_edit)
 
@@ -408,6 +425,7 @@ class MainWindow(QMainWindow):
 
     def _setup_logging(self):
         """Initialize the logging system: attach LogHandler to root logger."""
+        from gui.log_handler import LogHandler
         log_handler = LogHandler(self.log_console)
         log_handler.setLevel(logging.DEBUG)
         root_logger = logging.getLogger()
@@ -465,6 +483,11 @@ class MainWindow(QMainWindow):
             "resources",
             style_file,
         )
+        # Fallback to PyInstaller bundle path if source path doesn't exist
+        if not os.path.exists(style_path):
+            import sys
+            if hasattr(sys, "_MEIPASS"):
+                style_path = os.path.join(sys._MEIPASS, "resources", style_file)
         app = QApplication.instance()
         if app and os.path.exists(style_path):
             with open(style_path, "r", encoding="utf-8") as f:
@@ -502,6 +525,10 @@ class MainWindow(QMainWindow):
         self.action_export_midi.setText(LanguageManager.tr("menu_export_midi"))
         self.action_export_xml.setText(LanguageManager.tr("menu_export_xml"))
         self.action_export_ly.setText(LanguageManager.tr("menu_export_ly"))
+        self.action_export_mp3.setText(LanguageManager.tr("menu_export_mp3"))
+        self.action_export_wav.setText(LanguageManager.tr("menu_export_wav"))
+        self.action_export_flac.setText(LanguageManager.tr("menu_export_flac"))
+        self.action_export_ogg.setText(LanguageManager.tr("menu_export_ogg"))
 
         # Edit menu
         self._edit_menu.setTitle(LanguageManager.tr("menu_edit"))
@@ -815,7 +842,8 @@ class MainWindow(QMainWindow):
         Export the JSON content to a specific format asynchronously.
 
         Args:
-            fmt: Format identifier, one of "mxl", "midi", "xml", "ly".
+            fmt: Format identifier, one of "mxl", "midi", "xml", "ly",
+                 "mp3", "wav", "flac", "ogg".
         """
         json_data = self._parse_and_validate_json()
         if json_data is None:
@@ -823,10 +851,14 @@ class MainWindow(QMainWindow):
 
         # Determine file extension and filter
         format_config = {
-            "mxl":  {"ext": ".mxl",  "filter_key": "fd_mxl_filter", "dialog_title_key": "fd_export_mxl"},
-            "midi": {"ext": ".mid",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_midi"},
-            "xml":  {"ext": ".xml",  "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_xml"},
-            "ly":   {"ext": ".ly",   "filter_key": "fd_export_filter", "dialog_title_key": "fd_export_ly"},
+            "mxl":  {"ext": ".mxl",  "filter_key": "fd_mxl_filter",  "dialog_title_key": "fd_export_mxl"},
+            "midi": {"ext": ".mid",  "filter_key": "fd_export_filter","dialog_title_key": "fd_export_midi"},
+            "xml":  {"ext": ".xml",  "filter_key": "fd_export_filter","dialog_title_key": "fd_export_xml"},
+            "ly":   {"ext": ".ly",   "filter_key": "fd_export_filter","dialog_title_key": "fd_export_ly"},
+            "mp3":  {"ext": ".mp3",  "filter_key": "fd_mp3_filter",  "dialog_title_key": "fd_export_mp3"},
+            "wav":  {"ext": ".wav",  "filter_key": "fd_wav_filter",  "dialog_title_key": "fd_export_wav"},
+            "flac": {"ext": ".flac", "filter_key": "fd_flac_filter", "dialog_title_key": "fd_export_flac"},
+            "ogg":  {"ext": ".ogg",  "filter_key": "fd_ogg_filter",  "dialog_title_key": "fd_export_ogg"},
         }
         cfg = format_config.get(fmt, format_config["mxl"])
 
@@ -842,6 +874,7 @@ class MainWindow(QMainWindow):
 
         # Run export in a background thread
         self._show_progress(LanguageManager.tr("progress_exporting"))
+        from gui.workers import ExportWorker
         self._export_worker = ExportWorker(json_data, file_path, fmt)
         self._export_worker.finished_signal.connect(self._on_export_finished)
         self._export_worker.start()
@@ -874,12 +907,16 @@ class MainWindow(QMainWindow):
             return
 
         from PyQt6.QtWidgets import QInputDialog
-        formats = ["mxl", "midi", "xml", "ly"]
+        formats = ["mxl", "midi", "xml", "ly", "mp3", "wav", "flac", "ogg"]
         format_labels = [
             LanguageManager.tr("msg_format_mxl"),
             LanguageManager.tr("msg_format_midi"),
             LanguageManager.tr("msg_format_xml"),
             LanguageManager.tr("msg_format_ly"),
+            LanguageManager.tr("msg_format_mp3"),
+            LanguageManager.tr("msg_format_wav"),
+            LanguageManager.tr("msg_format_flac"),
+            LanguageManager.tr("msg_format_ogg"),
         ]
 
         fmt, ok = QInputDialog.getItem(
@@ -908,6 +945,7 @@ class MainWindow(QMainWindow):
             return
 
         self._show_progress(LanguageManager.tr("progress_previewing"))
+        from gui.workers import PreviewWorker
         self._preview_worker = PreviewWorker(json_data)
         self._preview_worker.finished_signal.connect(self._on_preview_finished)
         self._preview_worker.start()
