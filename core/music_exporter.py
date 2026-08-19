@@ -239,6 +239,9 @@ def _score_to_clean_xml(score: stream.Score) -> str:
     Convert a music21 Score to a DOCTYPE-free MusicXML string in memory.
 
     Uses GeneralObjectExporter to avoid temporary file I/O.
+    Calls parse() (not parseWellformedObject) to ensure the score goes
+    through the full conversion pipeline (makeNotation, fromGeneralObject,
+    etc.) before XML serialization.
 
     Args:
         score: music21 Score object.
@@ -247,8 +250,8 @@ def _score_to_clean_xml(score: stream.Score) -> str:
         str: Clean MusicXML string with DOCTYPE removed.
     """
     from music21.musicxml import m21ToXml
-    gex = m21ToXml.GeneralObjectExporter()
-    xml_bytes = gex.parseWellformedObject(score)
+    gex = m21ToXml.GeneralObjectExporter(score)
+    xml_bytes = gex.parse()
     xml_content = xml_bytes.decode('utf-8')
     return _remove_doctype(xml_content)
 
