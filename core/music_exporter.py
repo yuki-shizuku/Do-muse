@@ -1594,9 +1594,15 @@ _MUSESCORE_CANDIDATES: list[str] = [
     r"C:\Program Files (x86)\MuseScore 4\bin\MuseScore4.exe",
     r"D:\MuseScore\bin\MuseScore4.exe",
     r"C:\Program Files\MuseScore 3\bin\MuseScore3.exe",
+    r"C:\Program Files (x86)\MuseScore 3\bin\MuseScore3.exe",
+    r"C:\Program Files\MuseScore Studio 4\bin\MuseScore4.exe",
+    r"C:\Program Files (x86)\MuseScore Studio 4\bin\MuseScore4.exe",
+    r"D:\Program Files\MuseScore 4\bin\MuseScore4.exe",
+    r"D:\Program Files (x86)\MuseScore 4\bin\MuseScore4.exe",
     "/usr/bin/musescore",
     "/usr/local/bin/musescore",
     "/Applications/MuseScore 4.app/Contents/MacOS/MuseScore4",
+    "/Applications/MuseScore Studio 4.app/Contents/MacOS/MuseScore4",
 ]
 
 
@@ -1675,7 +1681,11 @@ def _export_audio_via_musescore(
             tmp.write(xml_content)
             temp_path = tmp.name
 
-        cmd = [musescore, "-o", output_path, "-b", str(bitrate), temp_path]
+        cmd = [musescore, temp_path, "-o", output_path, "--force"]
+        # Add bitrate flag only for MuseScore 3 (MuseScore 4 ignores it)
+        if "MuseScore3" in os.path.basename(musescore) or "MuseScore 3" in musescore:
+            cmd.append("-b")
+            cmd.append(str(bitrate))
         result = subprocess.run(
             cmd,
             capture_output=True,
